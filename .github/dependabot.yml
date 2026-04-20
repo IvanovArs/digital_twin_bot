@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Python runtime + dev dependencies: one weekly PR batch.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Moscow
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+    # Security updates always fire regardless of the weekly cadence.
+    groups:
+      patches:
+        applies-to: version-updates
+        update-types:
+          - patch
+      minor:
+        applies-to: version-updates
+        update-types:
+          - minor
+
+  # GitHub Actions workflows — pin by SHA, let Dependabot bump them.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - ci

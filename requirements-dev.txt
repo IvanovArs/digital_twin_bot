@@ -1,0 +1,17 @@
+# =====================================================================
+# digital_twin_bot — development / CI dependencies
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+# =====================================================================
+
+# --- Linters & type checkers ---
+ruff==0.8.6
+mypy==1.14.1
+bandit==1.8.0
+
+# --- Testing ---
+pytest==8.3.4
+pytest-asyncio==0.25.2
+pytest-cov==6.0.0
+
+# --- Type stubs ---
+types-PyYAML==6.0.12.20240917

@@ -1,0 +1,140 @@
+# Production compose: Postgres + llama-server + bot.
+#
+# Quickstart on a clean VPS:
+#   1. cp ../.env.example .env  &&  edit BOT_TOKEN, POSTGRES_*, ADMIN/ALLOWED IDs
+#   2. mkdir -p ../data/{books,index,models,glossary}
+#   3. drop a Qwen3 GGUF into ../data/models/  (e.g. Qwen3-4B-Q4_K_M.gguf)
+#   4. drop your course PDFs into ../data/books/<subject_slug>/
+#   5. drop glossary YAMLs into ../data/glossary/
+#   6. docker compose up -d
+#   7. docker compose exec bot python -m src.rag.ingest    # build the index
+#
+# Logs:        docker compose logs -f bot llama-cpp
+# Reindex:     docker compose exec bot python -m src.rag.ingest
+# Backup db:   docker compose exec -T postgres pg_dump -U $POSTGRES_USER $POSTGRES_DB | gzip > backup-$(date +%F).sql.gz
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-digital_twin}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  llama-cpp:
+    # Pin a specific tag in production; :server is a moving target.
+    image: ghcr.io/ggml-org/llama.cpp:server
+    restart: unless-stopped
+    volumes:
+      - ../data/models:/models:ro
+    # Tuning for a 4 vCPU / 8 GB VPS, CPU-only.
+    # - flash-attn + mlock + KV-q8_0 → ~1.5 GB RAM saved, faster prefill
+    # - parallel 1 → all cores go to one user's prompt (lower per-user latency)
+    # - batch/ubatch 512 → ~3-4× faster prompt ingestion (prefill is the floor)
+    # - ctx-size 3072 → fits TOP_K=5 chunks × 650 chars + system + answer
+    # - prio 2 → keeps host responsive for ssh/postgres under load
+    command:
+      - "--model"
+      - "/models/${LLM_MODEL_FILE:-Qwen3-4B-Q4_K_M.gguf}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "--ctx-size"
+      - "${LLAMA_CTX_SIZE:-3072}"
+      - "--threads"
+      - "${LLAMA_THREADS:-4}"
+      - "--parallel"
+      - "${LLAMA_PARALLEL:-1}"
+      - "--batch-size"
+      - "${LLAMA_BATCH_SIZE:-512}"
+      - "--ubatch-size"
+      - "${LLAMA_UBATCH_SIZE:-512}"
+      - "--cont-batching"
+      - "--flash-attn"
+      - "on"
+      - "--mlock"
+      - "--no-warmup"
+      - "--cache-type-k"
+      - "q8_0"
+      - "--cache-type-v"
+      - "q8_0"
+      - "--prio"
+      - "2"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    logging: *default-logging
+
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llama-cpp:
+        condition: service_healthy
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?set BOT_TOKEN in .env}
+      ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
+      ALLOWED_TELEGRAM_IDS: ${ALLOWED_TELEGRAM_IDS:-}
+      HEALTH_LISTEN: ${HEALTH_LISTEN:-0.0.0.0}
+      HEALTH_PORT: ${HEALTH_PORT:-8081}
+      DB_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-digital_twin}
+      LLM_PROVIDER: openai_compat
+      LLM_BASE_URL: http://llama-cpp:8080/v1
+      LLM_MODEL: ${LLM_MODEL:-qwen}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-300}
+      # Qwen3 non-think recipe (official): temp=0.7, top_p=0.8, top_k=20, min_p=0
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
+      LLM_TOP_P: ${LLM_TOP_P:-0.8}
+      LLM_TOP_K: ${LLM_TOP_K:-20}
+      LLM_MIN_P: ${LLM_MIN_P:-0.0}
+      LLM_REPEAT_PENALTY: ${LLM_REPEAT_PENALTY:-1.05}
+      # 320 tokens fits the mandated answer structure with a safety margin.
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-320}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: "true"
+    # Expose the healthz/readyz port so docker-compose / k8s / monitoring
+    # can probe it. Drop the `ports:` mapping if you only want it
+    # accessible from inside the compose network.
+    ports:
+      - "${HEALTH_PORT:-8081}:${HEALTH_PORT:-8081}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${HEALTH_PORT:-8081}/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging: *default-logging
+    volumes:
+      - ../data/books:/app/data/books
+      - ../data/index:/app/data/index
+      - ../data/glossary:/app/data/glossary:ro
+      - hf_cache:/app/.cache/huggingface
+
+volumes:
+  pgdata:
+  hf_cache:

@@ -1,0 +1,22 @@
+# =====================================================================
+# Single source of truth for subjects available in the bot.
+# Edit this file to add / remove / rename subjects.
+#
+# On bot startup this catalog is mirrored into the `subjects` table.
+# Books for a subject go into data/books/<slug>/*.pdf|*.txt
+# The RAG index is built globally by `make ingest`.
+# =====================================================================
+
+subjects:
+  - slug: theory_of_systems
+    title_en: "Theory of Information Systems"
+    title_ru: "Теория информационных систем"
+    description_ru: >
+      Курс по системному анализу, методикам структуризации целей, анализу среды,
+      SWOT/STEP, ПИЦ, стейкхолдеры, корпоративная культура.
+    description_en: >
+      Systems analysis, goal structuring methodologies, environment analysis,
+      SWOT/STEP, stakeholder mapping, corporate culture.
+    teacher_telegram_id: null
+    voice: academic_ru
+    is_active: true

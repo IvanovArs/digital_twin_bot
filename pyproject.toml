@@ -1,0 +1,88 @@
+[project]
+name = "digital-twin-bot"
+version = "0.1.0"
+description = "Multi-subject RAG Telegram bot for students"
+requires-python = ">=3.12"
+
+# Runtime deps are maintained in requirements.txt for pip-compatibility.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["data", "deploy", "docs", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+    "S",    # bandit-lite
+    "N",    # pep8-naming
+]
+ignore = [
+    "S101",   # assert usage (ok in tests)
+    "E501",   # line length handled by formatter
+    "RUF001", # ambiguous Cyrillic/Latin chars (false positive in Russian strings)
+    "RUF002", # same, in docstrings
+    "RUF003", # same, in comments
+    "S603",   # subprocess call: we launch llama-server with controlled args
+    "S608",   # possible SQL injection: SQLAlchemy .text() we do not use user-input
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "N"]
+"alembic/**" = ["S", "N", "E"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+explicit_package_bases = true
+ignore_missing_imports = true
+exclude = ["data/", "deploy/", "docs/", ".venv/", "build/"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "integration: integration tests (may require external services)",
+    "slow: slow tests (skip by default in CI pre-flight)",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = ["*/migrations/*", "*/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.bandit]
+# B101 (assert) — used for narrowing types in code paths that already validated input.
+# B404/B603 — subprocess calls for llama-server launch; args are hardcoded, no shell.
+skips = ["B101", "B404", "B603"]
+exclude_dirs = ["tests", ".venv", "data", "deploy"]

@@ -1,4 +1,5 @@
-﻿__pycache__/
+# --- Python ---
+__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -7,27 +8,56 @@ venv/
 env/
 ENV/
 .venv/
+build/
+dist/
+*.egg-info/
 
+# --- Local dev DBs ---
 *.db
 *.sqlite
 *.sqlite3
+data/dev.db
 
+# --- Secrets & env ---
 .env
 .env.local
 .env.*.local
 
+# --- Logs / runtime ---
 *.log
 logs/
+*.pid
+data/*.log
 
+# --- IDE / OS ---
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
-
 .DS_Store
 Thumbs.db
 
-materials/*.pdf
-materials/*.txt
+# --- RAG: большие файлы и индекс (не для git) ---
+# папки нужны, но содержимое — нет (кроме .gitkeep)
+data/books/*
+data/index/*
+data/models/*
+data/backups/*
+!data/books/.gitkeep
+!data/index/.gitkeep
+!data/models/.gitkeep
+!data/backups/.gitkeep
+*.gguf
+*.npy
 
-*.pid
+# --- Hugging Face cache ---
+.cache/
+huggingface/
+
+# --- Test artifacts ---
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
