@@ -184,6 +184,11 @@ _STREAM_EDIT_INTERVAL_S = 1.1
 _TYPING_INTERVAL_S = 4.0
 _HEARTBEAT_DELAY_S = 4.0
 
+# Per-modifier ceiling for follow-up answers. Default LLM_MAX_TOKENS=220 fits a
+# short verbose answer but cuts «Подробнее»/«Пример» mid-thought — the user
+# sees +1 sentence instead of a real expansion. Map intent → budget.
+_FU_TOKEN_BUDGET: dict[str, int] = {"simplify": 260, "example": 480, "deepen": 700}
+
 
 async def run_qa_pipeline(
     *,
@@ -926,10 +931,6 @@ async def run_followup_pipeline(
             texts.subject_title(ctx.subject, use_lang) if ctx.subject is not None else None
         )
 
-    # Дефолт LLM_MAX_TOKENS=220 рассчитан на короткий verbose-ответ;
-    # для «Подробнее» / «Пример» этого не хватает и юзер видит +1 предложение
-    # вместо реального разворота. Дотягиваем бюджет под намерение модификатора.
-    _FU_TOKEN_BUDGET = {"simplify": 260, "example": 480, "deepen": 700}
     fu_max_tokens = _FU_TOKEN_BUDGET.get(modifier)
 
     try:

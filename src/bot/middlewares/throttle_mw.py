@@ -90,9 +90,12 @@ def _is_heavy_update(update: Update) -> bool:
     # throttle-слот у того же юзера и дропнем его следующий настоящий
     # запрос как burst.
     chat = getattr(msg, "chat", None)
-    if chat is not None and getattr(chat, "type", None) in ("group", "supergroup"):
-        if not _is_message_addressed_to_bot(msg):
-            return False
+    if (
+        chat is not None
+        and getattr(chat, "type", None) in ("group", "supergroup")
+        and not _is_message_addressed_to_bot(msg)
+    ):
+        return False
     text = (msg.text or msg.caption or "").lstrip()
     if text.startswith("/"):
         return False  # /ask, /help, /admin_* — не heavy

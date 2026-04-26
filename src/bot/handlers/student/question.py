@@ -83,9 +83,12 @@ async def on_question(
     # В группах/супергруппах отвечаем только если бот адресован (reply или
     # @mention). Без этого бот реагировал на любое сообщение в чате —
     # «ты че ебанутый?» в группе становился вопросом к учебнику.
-    if message.chat and message.chat.type in _GROUP_CHAT_TYPES:
-        if not await _is_addressed_to_bot(message):
-            return
+    if (
+        message.chat
+        and message.chat.type in _GROUP_CHAT_TYPES
+        and not await _is_addressed_to_bot(message)
+    ):
+        return
 
     question = (message.text or "").strip()
     if not question:
