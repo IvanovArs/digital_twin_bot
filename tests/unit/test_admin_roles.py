@@ -57,9 +57,7 @@ def test_is_superadmin_true_when_in_env(monkeypatch) -> None:
     # Patch the settings instance the handler module already bound at import
     # time. Resetting ADMIN_TELEGRAM_IDS on the Pydantic model instance isn't
     # enough because ``admin_ids`` is a @property — we override the getter.
-    monkeypatch.setattr(
-        type(settings), "admin_ids", property(lambda self: {12345, 67890})
-    )
+    monkeypatch.setattr(type(settings), "admin_ids", property(lambda self: {12345, 67890}))
     assert mod._is_superadmin(_FakeUser(telegram_id=12345)) is True
     assert mod._is_superadmin(_FakeUser(telegram_id=67890)) is True
     assert mod._is_superadmin(_FakeUser(telegram_id=99999)) is False

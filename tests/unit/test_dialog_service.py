@@ -51,7 +51,9 @@ async def test_save_dialog_persists_sources_with_subject(session: AsyncSession) 
     dialog = await save_dialog(session, user=user, question="Q", result=result, latency_ms=100)
     assert dialog.id is not None
     assert dialog.subject_id == subj_row.id
-    assert dialog.sources == [{"book": "a.pdf", "page": 1, "subject": "theory_of_systems", "score": 0.9}]
+    assert dialog.sources == [
+        {"book": "a.pdf", "page": 1, "subject": "theory_of_systems", "score": 0.9}
+    ]
 
 
 @pytest.mark.asyncio

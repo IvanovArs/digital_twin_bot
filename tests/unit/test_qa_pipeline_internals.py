@@ -225,7 +225,9 @@ async def test_circuit_open_returns_busy_status(session, monkeypatch) -> None:
         set_status=cap.set_status,
         set_final=cap.set_final,
     )
-    assert any("LLM" in s or "недоступен" in s.lower() or "unavailable" in s.lower() for s in cap.statuses)
+    assert any(
+        "LLM" in s or "недоступен" in s.lower() or "unavailable" in s.lower() for s in cap.statuses
+    )
 
 
 @pytest.mark.asyncio

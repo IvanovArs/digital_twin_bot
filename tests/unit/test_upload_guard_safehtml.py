@@ -52,7 +52,15 @@ def test_allowed_tags_frozen() -> None:
     """A PR that silently adds <img> or <a href> opens XSS — keep the list
     short and test that it hasn't grown."""
     assert set(ALLOWED_TAGS) == {
-        "b", "strong", "i", "em", "u", "s", "code", "pre", "blockquote",
+        "b",
+        "strong",
+        "i",
+        "em",
+        "u",
+        "s",
+        "code",
+        "pre",
+        "blockquote",
     }
 
 

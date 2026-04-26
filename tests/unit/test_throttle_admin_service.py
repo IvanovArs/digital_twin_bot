@@ -187,9 +187,7 @@ async def test_save_material_overwrites_existing(sessionmaker, tmp_path: Path) -
 
         from src.db.models import SubjectMaterial
 
-        cnt = (
-            await session.execute(select(func.count(SubjectMaterial.id)))
-        ).scalar_one()
+        cnt = (await session.execute(select(func.count(SubjectMaterial.id)))).scalar_one()
         assert cnt == 1
         assert (tmp_path / "theory_of_systems" / "x.pdf").read_bytes() == b"v2"
 

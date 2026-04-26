@@ -61,11 +61,7 @@ async def pending_reviews(
     # can skip dialogs the teacher has already addressed. Cheap in-memory
     # filter because FAQ rows are small.
     faq_rows = list(
-        (
-            await session.execute(
-                select(FAQEntry.subject_id, FAQEntry.question_normalised)
-            )
-        ).all()
+        (await session.execute(select(FAQEntry.subject_id, FAQEntry.question_normalised))).all()
     )
     faq_keys = {(sid, qn) for sid, qn in faq_rows}
 
@@ -186,8 +182,6 @@ def format_faq_body(entry: FAQEntry, lang: str, question: str | None = None) -> 
 
     prefix = _FAQ_PREFIX_EN if lang == "en" else _FAQ_PREFIX_RU
     q_block = (
-        f"<blockquote>{_html_mod.escape(question.strip())}</blockquote>\n\n"
-        if question
-        else ""
+        f"<blockquote>{_html_mod.escape(question.strip())}</blockquote>\n\n" if question else ""
     )
     return q_block + prefix + safe_html(entry.answer)

@@ -94,9 +94,7 @@ async def subject_stats(
 
     # Всего (за всё время) диалогов по этому предмету.
     total = (
-        await session.execute(
-            select(func.count(Dialog.id)).where(Dialog.subject_id == subj.id)
-        )
+        await session.execute(select(func.count(Dialog.id)).where(Dialog.subject_id == subj.id))
     ).scalar_one() or 0
 
     # В окне: диалоги + latency + вопросы.
@@ -147,9 +145,7 @@ async def subject_stats(
         ).scalars()
     )
     web_fallback_count = sum(
-        1
-        for d in web_rows
-        if getattr(d.user, "current_subject_slug", None) == subj.slug
+        1 for d in web_rows if getattr(d.user, "current_subject_slug", None) == subj.slug
     )
     denom = len(windowed) + web_fallback_count
     web_ratio = (web_fallback_count / denom) if denom else 0.0
@@ -163,9 +159,7 @@ async def subject_stats(
             continue
         counter[key] += 1
         originals.setdefault(key, d.question.strip())
-    top = [
-        (originals[k], v) for k, v in counter.most_common(top_n) if v > 1
-    ]
+    top = [(originals[k], v) for k, v in counter.most_common(top_n) if v > 1]
 
     return SubjectStats(
         subject_slug=subj.slug,

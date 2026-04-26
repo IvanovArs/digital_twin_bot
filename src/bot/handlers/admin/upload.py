@@ -37,7 +37,9 @@ async def on_admin_upload(
 
     slug = (command.args or "").strip()
     if not slug:
-        await message.answer("Использование: <code>/admin_upload &lt;slug&gt;</code>", parse_mode="HTML")
+        await message.answer(
+            "Использование: <code>/admin_upload &lt;slug&gt;</code>", parse_mode="HTML"
+        )
         return
 
     subj = (await session.execute(select(Subject).where(Subject.slug == slug))).scalar_one_or_none()
@@ -73,9 +75,13 @@ async def on_admin_upload_doc(
     try:
         data = await state.get_data()
         slug = str(data.get("subject_slug") or "")
-        subj = (await session.execute(select(Subject).where(Subject.slug == slug))).scalar_one_or_none()
+        subj = (
+            await session.execute(select(Subject).where(Subject.slug == slug))
+        ).scalar_one_or_none()
         if subj is None:
-            await message.answer("Предмет пропал. Начни заново: /admin_upload &lt;slug&gt;", parse_mode="HTML")
+            await message.answer(
+                "Предмет пропал. Начни заново: /admin_upload &lt;slug&gt;", parse_mode="HTML"
+            )
             return
 
         doc: Document = message.document  # type: ignore[assignment]

@@ -391,9 +391,7 @@ async def _safe_edit(
         try:
             await coro_factory()
         except Exception as retry_exc:
-            log.warning(
-                "inline_edit_retry_failed", exc_type=type(retry_exc).__name__, **log_kw
-            )
+            log.warning("inline_edit_retry_failed", exc_type=type(retry_exc).__name__, **log_kw)
     except TelegramBadRequest as exc:
         if "not modified" in str(exc).lower():
             return
@@ -416,11 +414,7 @@ def _edit_via_inline_id(
         # See student.py for why we substitute the alert state during
         # streaming — the live preview ends with "▍" and would otherwise
         # leak answer fragments into the «Что сейчас делается?» alert.
-        alert_text = (
-            texts.tr(lang, texts.STATUS_STREAMING)
-            if text.rstrip().endswith("▍")
-            else text
-        )
+        alert_text = texts.tr(lang, texts.STATUS_STREAMING) if text.rstrip().endswith("▍") else text
         processing_state.set_status(rid, alert_text)
         await _safe_edit(
             lambda: bot.edit_message_text(
@@ -466,11 +460,7 @@ def _edit_via_chat_message(
     q_with_status = texts.tr(lang, texts.Q_WITH_STATUS)
 
     async def set_status(text: str) -> None:
-        alert_text = (
-            texts.tr(lang, texts.STATUS_STREAMING)
-            if text.rstrip().endswith("▍")
-            else text
-        )
+        alert_text = texts.tr(lang, texts.STATUS_STREAMING) if text.rstrip().endswith("▍") else text
         processing_state.set_status(rid, alert_text)
         await _safe_edit(
             lambda: bot.edit_message_text(

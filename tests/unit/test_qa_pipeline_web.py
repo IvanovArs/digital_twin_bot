@@ -40,7 +40,11 @@ def _hit(text: str = "x") -> Hit:
 
 
 def _web(title: str = "Wiki") -> WebHit:
-    return WebHit(title=title, url="https://example.org/x", snippet="A long snippet with more than 8 words about a thing.")
+    return WebHit(
+        title=title,
+        url="https://example.org/x",
+        snippet="A long snippet with more than 8 words about a thing.",
+    )
 
 
 class _Capture:
@@ -60,9 +64,7 @@ async def _async_none(*_a: Any, **_kw: Any) -> Any:
 
 
 @pytest.mark.asyncio
-async def test_web_fallback_no_results_says_no_hits(
-    session: AsyncSession, monkeypatch
-) -> None:
+async def test_web_fallback_no_results_says_no_hits(session: AsyncSession, monkeypatch) -> None:
     answer_cache.invalidate_all()
     user = _user()
     session.add(user)
@@ -89,9 +91,7 @@ async def test_web_fallback_no_results_says_no_hits(
 
 
 @pytest.mark.asyncio
-async def test_web_fallback_with_results_streams_answer(
-    session: AsyncSession, monkeypatch
-) -> None:
+async def test_web_fallback_with_results_streams_answer(session: AsyncSession, monkeypatch) -> None:
     answer_cache.invalidate_all()
     user = _user()
     session.add(user)

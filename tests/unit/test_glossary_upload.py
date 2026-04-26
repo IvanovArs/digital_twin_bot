@@ -48,10 +48,7 @@ def test_parse_csv_with_header() -> None:
 
 
 def test_parse_csv_no_header() -> None:
-    payload = (
-        "Система,Совокупность элементов\n"
-        "Подсистема,Часть системы\n"
-    ).encode()
+    payload = ("Система,Совокупность элементов\n" "Подсистема,Часть системы\n").encode()
     rows = parse_glossary_payload(payload, "g.csv")
     assert rows == [
         ("Система", "Совокупность элементов"),
@@ -127,9 +124,7 @@ async def test_replace_glossary_inserts_entries(session: AsyncSession) -> None:
 
     rows = list(
         (
-            await session.execute(
-                select(GlossaryTerm).where(GlossaryTerm.subject_id == subj.id)
-            )
+            await session.execute(select(GlossaryTerm).where(GlossaryTerm.subject_id == subj.id))
         ).scalars()
     )
     assert {r.term for r in rows} == {"Стейкхолдер", "Система"}
@@ -154,9 +149,7 @@ async def test_replace_glossary_wipes_previous(session: AsyncSession) -> None:
 
     rows = list(
         (
-            await session.execute(
-                select(GlossaryTerm).where(GlossaryTerm.subject_id == subj.id)
-            )
+            await session.execute(select(GlossaryTerm).where(GlossaryTerm.subject_id == subj.id))
         ).scalars()
     )
     assert [r.term for r in rows] == ["Новый"]
@@ -199,9 +192,7 @@ async def test_lookup_matches_normalised_question(session: AsyncSession) -> None
     )
     await session.commit()
 
-    hit = await lookup_term(
-        session, question="Что такое стейкхолдер?", subject_id=subj.id
-    )
+    hit = await lookup_term(session, question="Что такое стейкхолдер?", subject_id=subj.id)
     assert hit is not None
     assert hit.term == "Стейкхолдер"
 
@@ -212,9 +203,7 @@ async def test_lookup_respects_subject_filter(session: AsyncSession) -> None:
     subj_b = _subject("b")
     session.add_all([subj_a, subj_b])
     await session.flush()
-    session.add(
-        GlossaryTerm(subject_id=subj_a.id, term="система", definition="def A")
-    )
+    session.add(GlossaryTerm(subject_id=subj_a.id, term="система", definition="def A"))
     await session.commit()
 
     hit_a = await lookup_term(session, question="система", subject_id=subj_a.id)

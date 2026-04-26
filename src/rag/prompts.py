@@ -300,6 +300,7 @@ def build_web_messages(
     modifier: str | None = None,
 ) -> list[dict[str, str]]:
     """Промпт для web-fallback-пути. ``web_hits`` — ``list[WebHit]``."""
+
     def _trim(s: str) -> str:
         s = (s or "").strip()
         if len(s) <= _MAX_WEB_SNIPPET_CHARS:

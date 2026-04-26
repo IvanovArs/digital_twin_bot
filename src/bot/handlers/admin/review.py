@@ -51,7 +51,9 @@ async def on_teacher_review(message: Message, session: AsyncSession, user: User)
             f"<b>В:</b> {escape(q_preview)}\n"
             f"<i>Бот ответил:</i> {escape(a_preview)}"
         )
-    lines.append("\nПравь: <code>/teacher_fix &lt;id&gt;</code> — дальше бот спросит правильный ответ.")
+    lines.append(
+        "\nПравь: <code>/teacher_fix &lt;id&gt;</code> — дальше бот спросит правильный ответ."
+    )
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 

@@ -40,7 +40,9 @@ def _bot() -> MagicMock:
     b = MagicMock()
     b.edit_message_text = AsyncMock()
     b.send_chat_action = AsyncMock()
-    b.send_message = AsyncMock(return_value=SimpleNamespace(message_id=999, chat=SimpleNamespace(id=1)))
+    b.send_message = AsyncMock(
+        return_value=SimpleNamespace(message_id=999, chat=SimpleNamespace(id=1))
+    )
     return b
 
 
@@ -58,6 +60,7 @@ def _cb(data: str, *, inline_msg_id: str = "im-1") -> MagicMock:
 def _mock_qa_pipeline(monkeypatch):
     """Подменяем тяжёлый run_qa_pipeline на noop, чтобы тесты не висли
     на ожидании MODELS_READY / реального LLM-стрима."""
+
     async def _noop(**_kw):
         return None
 

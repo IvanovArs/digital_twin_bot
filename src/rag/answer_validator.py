@@ -33,10 +33,7 @@ _ATTRIBUTION_RE = re.compile(
 
 # Скобка этимологии. Принимаем частые RU/EN-префиксы из учебников —
 # «(лат. X — Y)», «(греч. X)», «(Eng. X)», «(Lat. X)», …
-_ETYMOLOGY_LANG_ALT = (
-    "англ|лат|греч|нем|фр|ит|исп|яп|кит|араб"
-    "|Eng|Lat|Gr|Fr|Ger|It|Sp|Jp|Ch|Ar"
-)
+_ETYMOLOGY_LANG_ALT = "англ|лат|греч|нем|фр|ит|исп|яп|кит|араб" "|Eng|Lat|Gr|Fr|Ger|It|Sp|Jp|Ch|Ar"
 _ETYMOLOGY_RE = re.compile(
     r"\s?\(\s*(?:" + _ETYMOLOGY_LANG_ALT + r")\.\s+[^)]+\)",
     flags=re.IGNORECASE,
@@ -68,10 +65,10 @@ _PROSE_YEAR_RE = re.compile(r"(?<!\d)(1[5-9]\d{2}|20[0-2]\d)(?!\d)")
 _DECADE_RE = re.compile(
     r"(?<!\d)("
     r"1[5-9]\d{2}[\-–—]1[5-9]\d{2}(?:[\-–—]?[ехe]?)?"  # 1970-1980 / 1970-1980-е
-    r"|20[0-2]\d[\-–—]20[0-2]\d(?:[\-–—]?[ехe]?)?"      # 2000-2010-е
-    r"|1[5-9]\d0[\-–—]?[ехe]"                           # 1970-е
-    r"|20[0-2]0[\-–—]?[ехe]"                            # 2000-е
-    r"|19\d0s|20[0-2]0s"                                # 1970s / 2000s
+    r"|20[0-2]\d[\-–—]20[0-2]\d(?:[\-–—]?[ехe]?)?"  # 2000-2010-е
+    r"|1[5-9]\d0[\-–—]?[ехe]"  # 1970-е
+    r"|20[0-2]0[\-–—]?[ехe]"  # 2000-е
+    r"|19\d0s|20[0-2]0s"  # 1970s / 2000s
     r")(?!\d)",
 )
 
@@ -151,9 +148,7 @@ def _foreign_grounded(run: str, corpus: str) -> bool:
 # ---------- public API ----------
 
 
-def validate_answer(
-    answer: str, corpus_texts: Iterable[str]
-) -> tuple[str, ValidationReport]:
+def validate_answer(answer: str, corpus_texts: Iterable[str]) -> tuple[str, ValidationReport]:
     """Remove hallucinated attribution / etymology / foreign-script runs.
 
     ``corpus_texts`` is the raw text of the grounded sources — textbook

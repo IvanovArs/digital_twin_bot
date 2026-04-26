@@ -19,7 +19,11 @@ def test_drops_thin_snippet_under_60_chars() -> None:
 
 
 def test_drops_snippet_with_too_few_words() -> None:
-    raw = [_ddg_result("OK", "https://example.com/x", "слово1 слово2 слово3 слово4 слово5 слово6 слово7")]
+    raw = [
+        _ddg_result(
+            "OK", "https://example.com/x", "слово1 слово2 слово3 слово4 слово5 слово6 слово7"
+        )
+    ]
     with patch.object(web_search, "_try_backend", return_value=raw):
         out = web_search.search_web("q", k=3)
     assert out == []

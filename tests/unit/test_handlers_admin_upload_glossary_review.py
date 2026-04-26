@@ -92,11 +92,7 @@ async def test_upload_doc_invalid_filename(session) -> None:
     body = m.answer.call_args.args[0]
     # Любая защитная реакция: либо «Недопустимое имя файла», либо
     # «Поддерживаются: .pdf …» — обе означают, что атака отбита.
-    assert (
-        "Недопустимое" in body
-        or "имя файла" in body
-        or ".pdf" in body
-    )
+    assert "Недопустимое" in body or "имя файла" in body or ".pdf" in body
 
 
 @pytest.mark.asyncio

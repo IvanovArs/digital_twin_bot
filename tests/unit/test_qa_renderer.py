@@ -19,9 +19,7 @@ def _h(book: str, page: int, score: float = 0.8) -> Hit:
 
 
 def test_render_textbook_sources_groups_pages_per_book() -> None:
-    out = render_textbook_sources(
-        [_h("a.pdf", 12), _h("a.pdf", 5), _h("b.pdf", 3)], lang="ru"
-    )
+    out = render_textbook_sources([_h("a.pdf", 12), _h("a.pdf", 5), _h("b.pdf", 3)], lang="ru")
     assert "a.pdf" in out and "5, 12" in out
     assert "b.pdf" in out and "3" in out
 

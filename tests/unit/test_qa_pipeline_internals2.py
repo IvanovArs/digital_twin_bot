@@ -147,9 +147,7 @@ async def test_web_persists_sources_to_dialog(session, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_followup_reload_from_dialog_when_cache_missed(
-    session, monkeypatch
-) -> None:
+async def test_followup_reload_from_dialog_when_cache_missed(session, monkeypatch) -> None:
     """Cache promaхнулся → fallback на retrieval из Dialog.question."""
     user = _user()
     session.add(user)
@@ -188,9 +186,7 @@ async def test_followup_reload_from_dialog_when_cache_missed(
 
 
 @pytest.mark.asyncio
-async def test_followup_reload_strips_modifier_prefix_from_question(
-    session, monkeypatch
-) -> None:
+async def test_followup_reload_strips_modifier_prefix_from_question(session, monkeypatch) -> None:
     """Если question = '[simplify] Q', при reload берём только Q."""
     user = _user()
     session.add(user)

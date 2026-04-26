@@ -93,7 +93,7 @@ async def on_ref(
         if row.get("type") == "web":
             title = html.escape(str(row.get("title") or "web"))
             url = html.escape(str(row.get("url") or ""), quote=True)
-            lines.append(f"• 🌐 <a href=\"{url}\">{title}</a>")
+            lines.append(f'• 🌐 <a href="{url}">{title}</a>')
         else:
             book = html.escape(str(row.get("book") or "?"))
             page = row.get("page")

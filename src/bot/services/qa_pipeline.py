@@ -241,13 +241,9 @@ async def _run_qa_pipeline_inner(
     # это нулевая работа: один dict-lookup, мгновенный edit. Скип, если юзер
     # явно жмёт «📖 Развёрнутый ответ» (skip_short_circuit=True) — там брифкеш
     # неуместен.
-    brief_user = bool(
-        getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
-    )
+    brief_user = bool(getattr(user, "answer_mode", None) and user.answer_mode.value == "brief")
     if not skip_short_circuit:
-        cached = answer_cache.get(
-            user_id=user.id, question=question, lang=lang, brief=brief_user
-        )
+        cached = answer_cache.get(user_id=user.id, question=question, lang=lang, brief=brief_user)
         if cached is not None:
             await set_final(cached.body, cached.dialog_id, cached.kind)
             log.info(
@@ -266,7 +262,11 @@ async def _run_qa_pipeline_inner(
     # (или очень близкую нормализованную форму) пропускает retrieval и LLM.
     # Fast-path в миллисекундах — без bge-m3, без Qwen3. Caller отключает
     # через ``skip_short_circuit`` (кнопка «📖 Развёрнутый ответ»).
-    faq = None if skip_short_circuit else await lookup_faq(session, question=question, subject_id=None)
+    faq = (
+        None
+        if skip_short_circuit
+        else await lookup_faq(session, question=question, subject_id=None)
+    )
     if faq is not None:
         dialog = await save_dialog(
             session,
@@ -289,7 +289,11 @@ async def _run_qa_pipeline_inner(
     # с известным термином («что такое стейкхолдер» → «стейкхолдер»), вернуть
     # курированное определение. Менее точно, чем FAQ (термин, не вопрос),
     # но ловит большую часть definitional-запросов.
-    gloss = None if skip_short_circuit else await lookup_term(session, question=question, subject_id=None)
+    gloss = (
+        None
+        if skip_short_circuit
+        else await lookup_term(session, question=question, subject_id=None)
+    )
     if gloss is not None:
         dialog = await save_dialog(
             session,
@@ -346,9 +350,7 @@ async def _run_qa_pipeline_inner(
                 subject = subj_a or subj_b
             comparison_terms = (term_a, term_b)
         else:
-            subject, hits, _ = await asyncio.to_thread(
-                resolve_subject, question, pinned_slug
-            )
+            subject, hits, _ = await asyncio.to_thread(resolve_subject, question, pinned_slug)
     except Exception:
         log.exception("qa_retrieval_failed")
         await set_status(texts.tr(lang, texts.INTERNAL_ERROR))
@@ -638,9 +640,7 @@ async def _web_fallback(
         await set_status(texts.tr(lang, texts.INTERNAL_ERROR))
         return
 
-    answer, validation = validate_answer(
-        answer, [f"{h.title} {h.snippet}" for h in web_hits]
-    )
+    answer, validation = validate_answer(answer, [f"{h.title} {h.snippet}" for h in web_hits])
     if validation.total:
         log.info(
             "qa_web_answer_validator_stripped",
@@ -665,9 +665,7 @@ async def _web_fallback(
     session.add(dialog)
     await session.flush()
 
-    brief_web = bool(
-        getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
-    )
+    brief_web = bool(getattr(user, "answer_mode", None) and user.answer_mode.value == "brief")
     body = render_web_body(
         q_html=q_html,
         answer=answer,
@@ -846,7 +844,8 @@ async def _reload_followup_from_dialog(
         )
         hits = merge_hits(hits_a, hits_b, max_total=8)
         subject = (
-            subj_a if (subj_a is not None and subj_b is not None and subj_a.slug == subj_b.slug)
+            subj_a
+            if (subj_a is not None and subj_b is not None and subj_a.slug == subj_b.slug)
             else (subj_a or subj_b)
         )
         ctx_obj = followup_cache.FollowUpContext(
@@ -892,9 +891,7 @@ async def run_followup_pipeline(
     """
     ctx = followup_cache.get(dialog_id)
     if ctx is None:
-        ctx = await _reload_followup_from_dialog(
-            session, dialog_id=dialog_id, user=user, lang=lang
-        )
+        ctx = await _reload_followup_from_dialog(session, dialog_id=dialog_id, user=user, lang=lang)
         if ctx is None:
             return False
         # Rough status line while the rebuild is happening in-flight.

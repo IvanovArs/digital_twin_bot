@@ -146,13 +146,7 @@ async def user_dialogs_page(
         return matching[offset : offset + limit], len(matching)
 
     total_count = (await session.execute(count_base)).scalar_one()
-    rows = list(
-        (
-            await session.execute(ordered.offset(offset).limit(limit))
-        )
-        .scalars()
-        .unique()
-    )
+    rows = list((await session.execute(ordered.offset(offset).limit(limit))).scalars().unique())
     return rows, int(total_count or 0)
 
 

@@ -21,8 +21,7 @@ def test_hallucinated_attribution_is_stripped() -> None:
     """Bernaldi doesn't exist in the corpus — strip it."""
     answer = "<b>Эмерджентность</b> — системное свойство (G. Bernaldi, 1984)."
     corpus = [
-        "Gow Бергаланфи определил эмерджентность как свойство, не сводимое "
-        "к свойствам частей."
+        "Gow Бергаланфи определил эмерджентность как свойство, не сводимое " "к свойствам частей."
     ]
     out, report = validate_answer(answer, corpus)
     assert "Bernaldi" not in out
@@ -107,9 +106,7 @@ def test_residue_cleanup_after_strip() -> None:
 
 
 def test_report_object_totals() -> None:
-    answer = (
-        "Термин (G. Bernaldi, 1984), этимология (лат. fake — нечто) и 文字 здесь."
-    )
+    answer = "Термин (G. Bernaldi, 1984), этимология (лат. fake — нечто) и 文字 здесь."
     corpus = ["Термин описывает некоторое явление."]
     _, report = validate_answer(answer, corpus)
     # 1 attribution + 1 etymology + 1 CJK + 1 year (1984 inside attribution

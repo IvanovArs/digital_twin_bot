@@ -65,9 +65,10 @@ async def test_chat_stream_skips_empty_and_done(monkeypatch: pytest.MonkeyPatch)
 @pytest.mark.asyncio
 async def test_chat_stream_ignores_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        body = b"data: {not valid json}\n" b"data: " + json.dumps(
-            {"choices": [{"delta": {"content": "ok"}}]}
-        ).encode() + b"\n"
+        body = (
+            b"data: {not valid json}\n"
+            b"data: " + json.dumps({"choices": [{"delta": {"content": "ok"}}]}).encode() + b"\n"
+        )
         return httpx.Response(200, content=body)
 
     _install_async_mock(monkeypatch, handler)

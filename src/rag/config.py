@@ -38,6 +38,7 @@ def _resolve_llama_server_exe() -> Path:
         return Path(found)
     return Path("llama-server")
 
+
 COURSES_YAML = ROOT / "courses.yaml"
 
 BOOKS_DIR = ROOT / "data" / "books"

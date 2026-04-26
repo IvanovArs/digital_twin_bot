@@ -81,14 +81,22 @@ PROMPT_QUESTION_HINT: Tr = {
 # Sample questions used by /ask buttons and inline empty-query suggestions.
 # Pairs are (RU, EN) so we don't pay the Tr-dict lookup overhead for an array.
 ASK_SAMPLES: tuple[tuple[str, str], ...] = (
-    ("Кто такие стейкхолдеры и как их классифицируют?",
-     "Who are stakeholders and how are they classified?"),
-    ("В чём разница между SWOT- и STEP-анализом?",
-     "What's the difference between SWOT and STEP analysis?"),
-    ("Что такое ПИЦ и как построить дерево целей?",
-     "What is a goal tree (ПИЦ) and how do I build one?"),
-    ("Как проанализировать внешнюю среду организации?",
-     "How do I analyse the external environment of an organisation?"),
+    (
+        "Кто такие стейкхолдеры и как их классифицируют?",
+        "Who are stakeholders and how are they classified?",
+    ),
+    (
+        "В чём разница между SWOT- и STEP-анализом?",
+        "What's the difference between SWOT and STEP analysis?",
+    ),
+    (
+        "Что такое ПИЦ и как построить дерево целей?",
+        "What is a goal tree (ПИЦ) and how do I build one?",
+    ),
+    (
+        "Как проанализировать внешнюю среду организации?",
+        "How do I analyse the external environment of an organisation?",
+    ),
 )
 
 # ---------- reply-keyboard buttons ----------
@@ -518,6 +526,4 @@ def subject_title(subject: object, lang: str) -> str:
     """Выбрать EN/RU-title у Subject (ORM-ряд или pydantic) по языку."""
     if lang == "en" and getattr(subject, "title_en", None):
         return str(subject.title_en)  # type: ignore[attr-defined]
-    return (
-        str(getattr(subject, "title_ru", None) or getattr(subject, "title_en", "") or "")
-    )
+    return str(getattr(subject, "title_ru", None) or getattr(subject, "title_en", "") or "")

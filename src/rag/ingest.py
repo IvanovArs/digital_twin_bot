@@ -304,8 +304,11 @@ def _build_chunks_for_subject(
             all_chunks.extend(kept)
             print(
                 f"      страниц: {len(pages)}, чанков: {len(chunks)}"
-                + (f" (OCR-мусор отброшен: {len(chunks) - len(kept)})"
-                   if len(kept) < len(chunks) else "")
+                + (
+                    f" (OCR-мусор отброшен: {len(chunks) - len(kept)})"
+                    if len(kept) < len(chunks)
+                    else ""
+                )
             )
         reports.append(
             BookReport(
@@ -396,8 +399,11 @@ def build_index(only_subject: str | None = None, *, force: bool = False) -> None
         _print_quality_report(all_reports)
         print(
             "\nНет материалов для индексации. Положите PDF/TXT в data/books/<slug>/"
-            + (" или запустите с --force, если считаете OCR-шум приемлемым."
-               if any(r.rejected for r in all_reports) else ""),
+            + (
+                " или запустите с --force, если считаете OCR-шум приемлемым."
+                if any(r.rejected for r in all_reports)
+                else ""
+            ),
             file=sys.stderr,
         )
         sys.exit(1)

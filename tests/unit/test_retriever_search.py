@@ -17,8 +17,18 @@ def fake_index(tmp_path: Path, monkeypatch) -> tuple[np.ndarray, list[dict]]:
     """Кладёт фейковый embedding-индекс на диск и подсовывает его модулю."""
     chunks = [
         {"text": "стейкхолдер — это лицо", "subject_slug": "tos", "book": "a.pdf", "page": 1},
-        {"text": "эмерджентность — свойство целого", "subject_slug": "tos", "book": "a.pdf", "page": 2},
-        {"text": "интеграл — площадь под кривой", "subject_slug": "math", "book": "b.pdf", "page": 7},
+        {
+            "text": "эмерджентность — свойство целого",
+            "subject_slug": "tos",
+            "book": "a.pdf",
+            "page": 2,
+        },
+        {
+            "text": "интеграл — площадь под кривой",
+            "subject_slug": "math",
+            "book": "b.pdf",
+            "page": 7,
+        },
     ]
     matrix = np.array(
         [

@@ -66,9 +66,7 @@ async def on_admin_reindex(
             await session.execute(select(Subject).where(Subject.slug == slug_arg))
         ).scalar_one_or_none()
         if exists is None:
-            await message.answer(
-                f"Неизвестный предмет: <code>{slug_arg}</code>", parse_mode="HTML"
-            )
+            await message.answer(f"Неизвестный предмет: <code>{slug_arg}</code>", parse_mode="HTML")
             return
 
     scope = slug_arg or "все предметы"

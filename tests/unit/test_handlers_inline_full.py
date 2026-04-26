@@ -39,7 +39,9 @@ def _user() -> User:
 def _bot() -> MagicMock:
     b = MagicMock()
     b.edit_message_text = AsyncMock()
-    b.send_message = AsyncMock(return_value=SimpleNamespace(message_id=99, chat=SimpleNamespace(id=1)))
+    b.send_message = AsyncMock(
+        return_value=SimpleNamespace(message_id=99, chat=SimpleNamespace(id=1))
+    )
     b.send_chat_action = AsyncMock()
     return b
 

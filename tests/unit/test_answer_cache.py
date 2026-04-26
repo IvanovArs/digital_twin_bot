@@ -21,9 +21,7 @@ def test_normalize_collapses_whitespace_and_punct() -> None:
 
 
 def test_get_returns_none_on_empty_cache() -> None:
-    assert (
-        answer_cache.get(user_id=1, question="что-то", lang="ru", brief=False) is None
-    )
+    assert answer_cache.get(user_id=1, question="что-то", lang="ru", brief=False) is None
 
 
 def test_store_and_retrieve_same_question() -> None:
@@ -36,9 +34,7 @@ def test_store_and_retrieve_same_question() -> None:
         kind="full",
         dialog_id=42,
     )
-    hit = answer_cache.get(
-        user_id=1, question="ЧТО такое  стейкхолдер  ?", lang="ru", brief=False
-    )
+    hit = answer_cache.get(user_id=1, question="ЧТО такое  стейкхолдер  ?", lang="ru", brief=False)
     assert hit is not None
     assert hit.dialog_id == 42
     assert hit.kind == "full"
@@ -48,21 +44,15 @@ def test_cache_isolated_per_user() -> None:
     answer_cache.store(
         user_id=1, question="q", lang="ru", brief=False, body="b", kind="full", dialog_id=1
     )
-    assert (
-        answer_cache.get(user_id=2, question="q", lang="ru", brief=False) is None
-    )
+    assert answer_cache.get(user_id=2, question="q", lang="ru", brief=False) is None
 
 
 def test_cache_isolated_per_lang_and_brief() -> None:
     answer_cache.store(
         user_id=1, question="q", lang="ru", brief=False, body="b", kind="full", dialog_id=1
     )
-    assert (
-        answer_cache.get(user_id=1, question="q", lang="en", brief=False) is None
-    )
-    assert (
-        answer_cache.get(user_id=1, question="q", lang="ru", brief=True) is None
-    )
+    assert answer_cache.get(user_id=1, question="q", lang="en", brief=False) is None
+    assert answer_cache.get(user_id=1, question="q", lang="ru", brief=True) is None
 
 
 def test_ttl_expires_old_entry(monkeypatch) -> None:

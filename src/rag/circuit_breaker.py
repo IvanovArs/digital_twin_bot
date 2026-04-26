@@ -45,9 +45,7 @@ class CircuitBreaker:
         Вызывай в начале каждого code-path'а, дёргающего LLM."""
         if self.is_open():
             remaining = self.cooldown_s - (time.monotonic() - self._state.opened_at)
-            raise CircuitOpenError(
-                f"llm circuit open, retry in {max(0, int(remaining))} s"
-            )
+            raise CircuitOpenError(f"llm circuit open, retry in {max(0, int(remaining))} s")
 
     # ---------- переходы состояния ----------
 

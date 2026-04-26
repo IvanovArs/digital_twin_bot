@@ -22,9 +22,7 @@ def test_invalidate_retrieval_caches_calls_cache_clear(monkeypatch) -> None:
 
     monkeypatch.setattr(retriever_mod, "load_chunks", _mk("load_chunks"))
     monkeypatch.setattr(retriever_mod, "_load_index", _mk("_load_index"))
-    monkeypatch.setattr(
-        retriever_mod, "_encode_query_cached", _mk("_encode_query_cached")
-    )
+    monkeypatch.setattr(retriever_mod, "_encode_query_cached", _mk("_encode_query_cached"))
     monkeypatch.setattr(hybrid_mod, "_bm25", _mk("_bm25"))
     monkeypatch.setattr(hybrid_mod, "_fingerprint_index", _mk("_fingerprint_index"))
 
@@ -46,13 +44,9 @@ def test_invalidate_ignores_targets_without_cache_clear(monkeypatch) -> None:
 
     monkeypatch.setattr(retriever_mod, "load_chunks", lambda: None)  # plain fn
     monkeypatch.setattr(retriever_mod, "_load_index", MagicMock(cache_clear=MagicMock()))
-    monkeypatch.setattr(
-        retriever_mod, "_encode_query_cached", MagicMock(cache_clear=MagicMock())
-    )
+    monkeypatch.setattr(retriever_mod, "_encode_query_cached", MagicMock(cache_clear=MagicMock()))
     monkeypatch.setattr(hybrid_mod, "_bm25", MagicMock(cache_clear=MagicMock()))
-    monkeypatch.setattr(
-        hybrid_mod, "_fingerprint_index", MagicMock(cache_clear=MagicMock())
-    )
+    monkeypatch.setattr(hybrid_mod, "_fingerprint_index", MagicMock(cache_clear=MagicMock()))
 
     # Must not raise.
     admin_service._invalidate_retrieval_caches()

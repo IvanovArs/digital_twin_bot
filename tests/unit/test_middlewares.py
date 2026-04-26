@@ -67,7 +67,9 @@ async def test_access_middleware_passes_listed_user() -> None:
     async def handler(event, data):  # type: ignore[no-untyped-def]
         return "ok"
 
-    res = await mw(handler, MagicMock(), {"event_from_user": SimpleNamespace(id=42, language_code="ru")})
+    res = await mw(
+        handler, MagicMock(), {"event_from_user": SimpleNamespace(id=42, language_code="ru")}
+    )
     assert res == "ok"
 
 
@@ -82,9 +84,7 @@ async def test_access_middleware_blocks_outsider_message() -> None:
 
     msg = MagicMock(spec=Message)
     msg.answer = AsyncMock()
-    res = await mw(
-        handler, msg, {"event_from_user": SimpleNamespace(id=99, language_code="ru")}
-    )
+    res = await mw(handler, msg, {"event_from_user": SimpleNamespace(id=99, language_code="ru")})
     assert res is None
     msg.answer.assert_awaited()
 
@@ -100,9 +100,7 @@ async def test_access_middleware_blocks_callback_query() -> None:
 
     cb = MagicMock(spec=CallbackQuery)
     cb.answer = AsyncMock()
-    await mw(
-        handler, cb, {"event_from_user": SimpleNamespace(id=99, language_code="en")}
-    )
+    await mw(handler, cb, {"event_from_user": SimpleNamespace(id=99, language_code="en")})
     cb.answer.assert_awaited()
 
 

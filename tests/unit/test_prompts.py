@@ -130,10 +130,18 @@ def test_ocr_filter_rejects_latin_dominant_debris() -> None:
 
 
 def test_format_context_drops_garbage_hits() -> None:
-    good = _hit("a.pdf", 1, "Стейкхолдер — это физическое или юридическое лицо, "
-                            "которое может повлиять на работу организации.")
-    bad = _hit("b.pdf", 2, "Gow Бергаланфи определил pearpasse Wenartpompyeaie "
-                            "noxxon Tor термин fades Mow полностмо зависяще.")
+    good = _hit(
+        "a.pdf",
+        1,
+        "Стейкхолдер — это физическое или юридическое лицо, "
+        "которое может повлиять на работу организации.",
+    )
+    bad = _hit(
+        "b.pdf",
+        2,
+        "Gow Бергаланфи определил pearpasse Wenartpompyeaie "
+        "noxxon Tor термин fades Mow полностмо зависяще.",
+    )
     ctx = format_context([good, bad])
     assert "Стейкхолдер" in ctx
     assert "Бергаланфи" not in ctx
@@ -143,10 +151,18 @@ def test_format_context_drops_garbage_hits() -> None:
 def test_format_context_keeps_one_chunk_when_all_garbage() -> None:
     """Fallback: rather than emit an empty context, keep the single best hit
     — the system prompt's 'suspicious surnames are OCR' rule will catch it."""
-    bad1 = _hit("a.pdf", 1, "Gow Бергаланфи pearpasse Wenartpompyeaie noxxon "
-                             "Tor термин fades Mow полностмо зависяще conc emer.")
-    bad2 = _hit("b.pdf", 2, "„шт == some До ==YASS ownsere een conc i emer "
-                             "eter mee Feira cog es cemmenra eet a me te n.")
+    bad1 = _hit(
+        "a.pdf",
+        1,
+        "Gow Бергаланфи pearpasse Wenartpompyeaie noxxon "
+        "Tor термин fades Mow полностмо зависяще conc emer.",
+    )
+    bad2 = _hit(
+        "b.pdf",
+        2,
+        "„шт == some До ==YASS ownsere een conc i emer "
+        "eter mee Feira cog es cemmenra eet a me te n.",
+    )
     ctx = format_context([bad1, bad2])
     assert ctx  # not empty
     # Exactly one chunk, so no separator.

@@ -50,6 +50,7 @@ async def test_ref_no_sources(session) -> None:
     m = MagicMock()
     m.answer = AsyncMock()
     from types import SimpleNamespace
+
     cmd = SimpleNamespace(args=str(d.id))
     await on_ref(m, cmd, session, user, "ru")
     body = m.answer.call_args.args[0]

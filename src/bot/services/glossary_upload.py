@@ -36,9 +36,7 @@ _GLOSS_PREFIX_RU = "📖 <b>{term}</b>\n"
 _GLOSS_PREFIX_EN = "📖 <b>{term}</b>\n"
 
 
-def format_glossary_body(
-    entry: GlossaryTerm, lang: str, question: str | None = None
-) -> str:
+def format_glossary_body(entry: GlossaryTerm, lang: str, question: str | None = None) -> str:
     """Отрендерить glossary-запись от препода в Telegram-HTML.
 
     Term и definition санитизируются тем же whitelist'ом, что и LLM-вывод —
@@ -51,15 +49,9 @@ def format_glossary_body(
 
     prefix = _GLOSS_PREFIX_EN if lang == "en" else _GLOSS_PREFIX_RU
     q_block = (
-        f"<blockquote>{_html_mod.escape(question.strip())}</blockquote>\n\n"
-        if question
-        else ""
+        f"<blockquote>{_html_mod.escape(question.strip())}</blockquote>\n\n" if question else ""
     )
-    return (
-        q_block
-        + prefix.format(term=safe_html(entry.term))
-        + safe_html(entry.definition)
-    )
+    return q_block + prefix.format(term=safe_html(entry.term)) + safe_html(entry.definition)
 
 
 @dataclass
@@ -113,10 +105,15 @@ def parse_glossary_payload(payload: bytes, filename: str) -> list[tuple[str, str
             term = raw[0].strip()
             defn = raw[1].strip()
             # На первой итерации детектим header-строку (case-insensitive).
-            if i == 0 and term.lower() in {"term", "термин"} and defn.lower() in {
-                "definition",
-                "определение",
-            }:
+            if (
+                i == 0
+                and term.lower() in {"term", "термин"}
+                and defn.lower()
+                in {
+                    "definition",
+                    "определение",
+                }
+            ):
                 continue
             if term and defn:
                 rows.append((term, defn))
@@ -140,15 +137,11 @@ async def replace_glossary(
     """
     # Считаем, что заменяем — чтобы препод увидел diff-style summary.
     previous_count = (
-        await session.execute(
-            select(GlossaryTerm).where(GlossaryTerm.subject_id == subject.id)
-        )
+        await session.execute(select(GlossaryTerm).where(GlossaryTerm.subject_id == subject.id))
     ).all()
 
     async with session.begin_nested():
-        await session.execute(
-            delete(GlossaryTerm).where(GlossaryTerm.subject_id == subject.id)
-        )
+        await session.execute(delete(GlossaryTerm).where(GlossaryTerm.subject_id == subject.id))
 
         inserted = 0
         skipped = 0

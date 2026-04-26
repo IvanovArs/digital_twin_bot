@@ -28,9 +28,7 @@ async def session() -> AsyncSession:
 
 
 @pytest.mark.asyncio
-async def test_sync_inserts_terms_for_known_subject(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_sync_inserts_terms_for_known_subject(session: AsyncSession, tmp_path: Path) -> None:
     session.add(Subject(slug="theory_of_systems", title_en="TOS", title_ru="Теория систем"))
     await session.flush()
 
@@ -57,9 +55,7 @@ async def test_sync_skips_unknown_subject(session: AsyncSession, tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_sync_updates_existing_term_definition(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_sync_updates_existing_term_definition(session: AsyncSession, tmp_path: Path) -> None:
     session.add(Subject(slug="theory_of_systems", title_en="TOS", title_ru="Теория систем"))
     await session.flush()
     (tmp_path / "theory_of_systems.yaml").write_text(
@@ -76,9 +72,7 @@ async def test_sync_updates_existing_term_definition(
 
 
 @pytest.mark.asyncio
-async def test_find_term_substring_case_insensitive(
-    session: AsyncSession, tmp_path: Path
-) -> None:
+async def test_find_term_substring_case_insensitive(session: AsyncSession, tmp_path: Path) -> None:
     """SQLite ILIKE — ASCII-only, поэтому проверяем латиницей. Postgres
     в проде корректно работает с Unicode."""
     session.add(Subject(slug="theory_of_systems", title_en="TOS", title_ru="Теория систем"))

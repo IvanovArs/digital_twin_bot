@@ -110,7 +110,8 @@ async def _render_history(
         title = texts.subject_title(d.subject, lang) if d.subject else "?"
         star = "⭐ " if d.is_favourite else ""
         lines.append(
-            f"{star}" + texts.tr(lang, texts.HISTORY_ITEM).format(
+            f"{star}"
+            + texts.tr(lang, texts.HISTORY_ITEM).format(
                 when=d.created_at.strftime("%d.%m %H:%M"),
                 subject=title,
                 q=shorten(_clean_history_question(d.question or ""), 120),
@@ -149,9 +150,7 @@ async def on_history(
 
 
 @router.message(Command("favourites"))
-async def on_favourites(
-    message: Message, session: AsyncSession, user: User, lang: str
-) -> None:
+async def on_favourites(message: Message, session: AsyncSession, user: User, lang: str) -> None:
     body, kb = await _render_history(session, user, lang, page=0, favourites_only=True)
     # `_render_history` возвращает HISTORY_EMPTY и для «нет диалогов», и для
     # «нет favourites» — различаем, чтобы не вводить пользователя в заблуждение
@@ -186,9 +185,7 @@ async def on_find(
 
 
 @router.message(Command("export"))
-async def on_export(
-    message: Message, session: AsyncSession, user: User, lang: str
-) -> None:
+async def on_export(message: Message, session: AsyncSession, user: User, lang: str) -> None:
     """/export — выгрузить всю историю Q&A в .txt-файл.
 
     Без пагинации, без LLM. Полезно перед экзаменом — оффлайн-конспект

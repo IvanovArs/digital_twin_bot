@@ -41,8 +41,7 @@ def test_build_chunks_for_subject_processes_txt(tmp_path: Path, monkeypatch) -> 
     book_dir = tmp_path / "theory_of_systems"
     book_dir.mkdir()
     (book_dir / "lecture.txt").write_text(
-        "Стейкхолдер — это лицо или организация, заинтересованные в проекте. "
-        * 30,
+        "Стейкхолдер — это лицо или организация, заинтересованные в проекте. " * 30,
         encoding="utf-8",
     )
     subj = SubjectCfg(slug="theory_of_systems", title_en="TOS", title_ru="ТС")
@@ -52,9 +51,7 @@ def test_build_chunks_for_subject_processes_txt(tmp_path: Path, monkeypatch) -> 
     assert reports[0].book == "lecture.txt"
 
 
-def test_load_existing_chunks_returns_empty_when_missing(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_load_existing_chunks_returns_empty_when_missing(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(ing_mod, "CHUNKS_FILE", tmp_path / "ghost.jsonl")
     assert _load_existing_chunks() == []
 
@@ -64,7 +61,9 @@ def test_load_existing_chunks_reads_jsonl(tmp_path: Path, monkeypatch) -> None:
     p.write_text(
         json.dumps({"text": "x", "subject_slug": "theory_of_systems", "book": "a.pdf", "page": 1})
         + "\n"
-        + json.dumps({"text": "y", "subject_slug": "theory_of_systems", "book": "a.pdf", "page": 2}),
+        + json.dumps(
+            {"text": "y", "subject_slug": "theory_of_systems", "book": "a.pdf", "page": 2}
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(ing_mod, "CHUNKS_FILE", p)
@@ -77,8 +76,20 @@ def test_write_chunks_round_trip(tmp_path: Path, monkeypatch) -> None:
     p = tmp_path / "chunks.jsonl"
     monkeypatch.setattr(ing_mod, "CHUNKS_FILE", p)
     chunks = [
-        {"text": "Стейкхолдер", "subject_slug": "theory_of_systems", "book": "a.pdf", "page": 1, "chunk_idx": 0},
-        {"text": "Эмерджентность", "subject_slug": "theory_of_systems", "book": "a.pdf", "page": 2, "chunk_idx": 1},
+        {
+            "text": "Стейкхолдер",
+            "subject_slug": "theory_of_systems",
+            "book": "a.pdf",
+            "page": 1,
+            "chunk_idx": 0,
+        },
+        {
+            "text": "Эмерджентность",
+            "subject_slug": "theory_of_systems",
+            "book": "a.pdf",
+            "page": 2,
+            "chunk_idx": 1,
+        },
     ]
     _write_chunks(chunks)
     monkeypatch.setattr(ing_mod, "CHUNKS_FILE", p)
@@ -146,9 +157,7 @@ def test_build_index_partial_subject_keeps_others(tmp_path: Path, monkeypatch) -
     )
     for slug in ("theory_of_systems", "systems_engineering"):
         (books / slug).mkdir(parents=True)
-        (books / slug / f"{slug}.txt").write_text(
-            natural_text * 30, encoding="utf-8"
-        )
+        (books / slug / f"{slug}.txt").write_text(natural_text * 30, encoding="utf-8")
     monkeypatch.setattr(ing_mod, "BOOKS_DIR", books)
     monkeypatch.setattr(ing_mod, "INDEX_DIR", index)
     monkeypatch.setattr(ing_mod, "EMBEDDINGS_FILE", index / "embeddings.npy")

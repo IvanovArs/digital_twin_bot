@@ -160,12 +160,8 @@ async def test_save_faq_upserts_on_repeat(session: AsyncSession) -> None:
     session.add(d)
     await session.flush()
 
-    e1 = await save_faq_from_dialog(
-        session, dialog_id=d.id, answer="первая", teacher=teacher
-    )
-    e2 = await save_faq_from_dialog(
-        session, dialog_id=d.id, answer="вторая", teacher=teacher
-    )
+    e1 = await save_faq_from_dialog(session, dialog_id=d.id, answer="первая", teacher=teacher)
+    e2 = await save_faq_from_dialog(session, dialog_id=d.id, answer="вторая", teacher=teacher)
     assert e1 is not None and e2 is not None
     assert e1.id == e2.id  # same row
     assert e2.answer == "вторая"
@@ -176,9 +172,7 @@ async def test_save_faq_returns_none_for_missing_dialog(session: AsyncSession) -
     teacher = _user(tg=999, role=UserRole.teacher)
     session.add(teacher)
     await session.flush()
-    entry = await save_faq_from_dialog(
-        session, dialog_id=9999, answer="x", teacher=teacher
-    )
+    entry = await save_faq_from_dialog(session, dialog_id=9999, answer="x", teacher=teacher)
     assert entry is None
 
 
@@ -203,9 +197,7 @@ async def test_lookup_finds_subject_scoped_faq(session: AsyncSession) -> None:
     )
     await session.commit()
 
-    hit = await lookup_faq(
-        session, question="Что такое эмерджентность?", subject_id=subj.id
-    )
+    hit = await lookup_faq(session, question="Что такое эмерджентность?", subject_id=subj.id)
     assert hit is not None
     assert hit.answer == "teacher's RU answer"
 
@@ -243,9 +235,7 @@ async def test_lookup_subject_scoped_wins_over_global(session: AsyncSession) -> 
     )
     await session.commit()
 
-    hit = await lookup_faq(
-        session, question="что такое эмерджентность", subject_id=subj.id
-    )
+    hit = await lookup_faq(session, question="что такое эмерджентность", subject_id=subj.id)
     assert hit is not None and hit.answer == "SUBJECT"
 
 

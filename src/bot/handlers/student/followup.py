@@ -272,7 +272,7 @@ async def on_ask_term(
     сообщение в месте — чтобы лента не засорялась.
     """
     data = callback.data or ""
-    term = data[len("at:"):].strip()
+    term = data[len("at:") :].strip()
     if not term or len(term) > 80:
         await callback.answer()
         return
@@ -316,10 +316,12 @@ async def on_ask_term(
             # оставим в feedback_brief, чтобы юзер мог как минимум 👎 ткнуть.
             kb = feedback_brief(new_dialog_id, lang)
         else:
-            is_brief = (
-                getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
+            is_brief = getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
+            kb = (
+                feedback_brief(new_dialog_id, lang)
+                if is_brief
+                else feedback_inline(new_dialog_id, lang)
             )
-            kb = feedback_brief(new_dialog_id, lang) if is_brief else feedback_inline(new_dialog_id, lang)
         await _edit(body, reply_markup=kb)
 
     await run_qa_pipeline(
@@ -345,9 +347,7 @@ async def on_feedback(
     dialog_id = int(dialog_id_str)
     rating = int(rating_str)
 
-    inserted = await record_feedback(
-        session, dialog_id=dialog_id, user_id=user.id, rating=rating
-    )
+    inserted = await record_feedback(session, dialog_id=dialog_id, user_id=user.id, rating=rating)
     # Маленький дофамин: 🎉-реакция на положительную оценку, только при первом
     # инсёрте — повторный rating не должен спамить реакциями.
     if inserted and rating >= 5 and callback.message is not None:

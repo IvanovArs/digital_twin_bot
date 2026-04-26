@@ -99,4 +99,5 @@ class Settings(BaseSettings):
         """Empty set ⇒ no allowlist (bot open to everyone)."""
         return {int(x) for x in self.ALLOWED_TELEGRAM_IDS.split(",") if x}
 
+
 settings = Settings()

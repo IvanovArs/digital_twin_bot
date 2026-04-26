@@ -130,14 +130,10 @@ async def on_mode(
     await session.flush()
     await session.commit()
     label_key = (
-        texts.MODE_BRIEF_LABEL
-        if user.answer_mode is AnswerMode.brief
-        else texts.MODE_VERBOSE_LABEL
+        texts.MODE_BRIEF_LABEL if user.answer_mode is AnswerMode.brief else texts.MODE_VERBOSE_LABEL
     )
     current = texts.tr(lang, label_key)
-    await message.answer(
-        texts.tr(lang, texts.MODE_SET).format(mode=current), parse_mode="HTML"
-    )
+    await message.answer(texts.tr(lang, texts.MODE_SET).format(mode=current), parse_mode="HTML")
 
 
 # ---------- /subjects ----------

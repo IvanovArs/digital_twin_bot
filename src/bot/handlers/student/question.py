@@ -127,9 +127,7 @@ async def on_question(
         except TelegramRetryAfter as exc:
             await asyncio.sleep(exc.retry_after + 0.1)
             try:
-                await status_msg.edit_text(
-                    new_text, parse_mode="HTML", reply_markup=reply_markup
-                )
+                await status_msg.edit_text(new_text, parse_mode="HTML", reply_markup=reply_markup)
                 last_sent["text"] = new_text
             except Exception as retry_exc:
                 log.warning("status_edit_retry_failed", exc_type=type(retry_exc).__name__)
@@ -195,6 +193,7 @@ async def on_question(
             # body уже содержит фразу с предложенным термином в формате «… <b>«Y»</b> …»;
             # достаём его обратно для callback_data — самый дешёвый путь.
             import re as _re
+
             m = _re.search(r"<b>«([^»]+)»</b>\.\s*Возможно", body)
             if m is None:
                 m = _re.search(r"<b>«([^»]+)»</b>\.\s*Did", body)
@@ -203,9 +202,7 @@ async def on_question(
         elif kind in ("glossary", "faq"):
             kb = feedback_short_answer(dialog_id, lang)
         else:
-            is_brief = (
-                getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
-            )
+            is_brief = getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
             kb = feedback_brief(dialog_id, lang) if is_brief else feedback_inline(dialog_id, lang)
         await _edit(body, reply_markup=kb)
         await _react("👍")

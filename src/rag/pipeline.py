@@ -128,9 +128,7 @@ def resolve_subject(
         # Cross-encoder реранкер делает финальный cut по merged-set'у — чанк,
         # пробивший только один сигнал, всё равно может стать топом, если
         # реранкер согласен.
-        pool = search_hybrid(
-            question, k=max(k, RERANK_POOL), subject_slug=explicit_slug
-        )
+        pool = search_hybrid(question, k=max(k, RERANK_POOL), subject_slug=explicit_slug)
         route = detect_subject(pool)
         hits = _rerank_final(question, pool, k=k)
         return subj, hits, route
@@ -147,9 +145,7 @@ def resolve_subject(
 
     subject = catalog.get(route.subject_slug)
     # Когда предмет зафиксирован — подключаем BM25 в пул для реранка.
-    pool = search_hybrid(
-        question, k=max(k, RERANK_POOL), subject_slug=route.subject_slug
-    )
+    pool = search_hybrid(question, k=max(k, RERANK_POOL), subject_slug=route.subject_slug)
     hits = _rerank_final(question, pool, k=k)
     return subject, hits, route
 

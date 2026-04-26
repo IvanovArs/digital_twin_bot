@@ -71,9 +71,7 @@ async def test_dialog_sources_roundtrip_textbook(session: AsyncSession) -> None:
 
     from src.db.models import Dialog as DRow
 
-    got = (
-        await session.execute(select(DRow).where(DRow.id == d.id))
-    ).scalar_one()
+    got = (await session.execute(select(DRow).where(DRow.id == d.id))).scalar_one()
     assert got.sources is not None
     assert len(got.sources) == 2
     first = got.sources[0]
@@ -90,9 +88,7 @@ async def test_dialog_sources_roundtrip_web(session: AsyncSession) -> None:
     d = Dialog(user_id=user.id)
     d.question = "q"
     d.answer = "a"
-    d.sources = [
-        {"type": "web", "title": "Wikipedia", "url": "https://wiki/foo", "snippet": "s"}
-    ]
+    d.sources = [{"type": "web", "title": "Wikipedia", "url": "https://wiki/foo", "snippet": "s"}]
     session.add(d)
     await session.commit()
     # Retrieve and verify structure the handler depends on.
@@ -100,9 +96,7 @@ async def test_dialog_sources_roundtrip_web(session: AsyncSession) -> None:
 
     from src.db.models import Dialog as DRow
 
-    got = (
-        await session.execute(select(DRow).where(DRow.id == d.id))
-    ).scalar_one()
+    got = (await session.execute(select(DRow).where(DRow.id == d.id))).scalar_one()
     assert got.sources is not None
     row = got.sources[0]
     assert row["type"] == "web"
@@ -127,9 +121,7 @@ async def test_export_fetches_all_when_limit_high(session: AsyncSession) -> None
         session.add(d)
     await session.commit()
 
-    rows, total = await user_dialogs_page(
-        session, user_id=user.id, offset=0, limit=10_000
-    )
+    rows, total = await user_dialogs_page(session, user_id=user.id, offset=0, limit=10_000)
     assert len(rows) == 25
     assert total == 25
 

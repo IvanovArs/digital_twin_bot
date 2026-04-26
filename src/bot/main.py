@@ -202,9 +202,7 @@ async def _on_startup(bot: Bot) -> None:
     ):
         try:
             await bot.set_my_description(description=long_txt, language_code=lang_code)
-            await bot.set_my_short_description(
-                short_description=short_txt, language_code=lang_code
-            )
+            await bot.set_my_short_description(short_description=short_txt, language_code=lang_code)
         except Exception:
             log.warning("set_bot_description_failed", lang=lang_code, exc_info=True)
 

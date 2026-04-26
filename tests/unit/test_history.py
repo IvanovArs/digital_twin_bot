@@ -72,9 +72,7 @@ async def test_favourites_only_filters(session: AsyncSession) -> None:
     session.add_all([regular, fav])
     await session.commit()
 
-    rows, total = await user_dialogs_page(
-        session, user_id=user.id, favourites_only=True
-    )
+    rows, total = await user_dialogs_page(session, user_id=user.id, favourites_only=True)
     assert total == 1
     assert rows[0].question == "любимый"
 
@@ -89,9 +87,7 @@ async def test_search_is_case_insensitive_substring(session: AsyncSession) -> No
     session.add(_dialog(user.id, "подсистема это?"))
     await session.commit()
 
-    rows, total = await user_dialogs_page(
-        session, user_id=user.id, search="стейкхолдер"
-    )
+    rows, total = await user_dialogs_page(session, user_id=user.id, search="стейкхолдер")
     assert total == 1
     assert rows[0].question == "что такое Стейкхолдер"
 
@@ -160,9 +156,7 @@ async def test_set_favourite_refuses_foreign_dialog(session: AsyncSession) -> No
     session.add(their_dialog)
     await session.flush()
 
-    ok = await set_favourite(
-        session, dialog_id=their_dialog.id, user_id=me.id, is_favourite=True
-    )
+    ok = await set_favourite(session, dialog_id=their_dialog.id, user_id=me.id, is_favourite=True)
     assert ok is False
     # Flag must not have been flipped.
     assert their_dialog.is_favourite is False

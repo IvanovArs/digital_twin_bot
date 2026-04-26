@@ -64,9 +64,7 @@ def _patch_pipeline(monkeypatch, *, hits: list[Hit], answer: str) -> None:
     """Подменяет тяжёлые зависимости — модели готовы, retrieval мгновенный,
     LLM-стрим возвращает фиксированный ответ."""
     MODELS_READY.set()
-    monkeypatch.setattr(
-        qa, "resolve_subject", lambda q, slug: (_subject(), hits, None)
-    )
+    monkeypatch.setattr(qa, "resolve_subject", lambda q, slug: (_subject(), hits, None))
     monkeypatch.setattr(qa, "lookup_faq", _async_none)
     monkeypatch.setattr(qa, "lookup_term", _async_none)
 
@@ -114,9 +112,7 @@ async def test_textbook_answer_path_persists_dialog_and_calls_set_final(
 
 
 @pytest.mark.asyncio
-async def test_cache_hit_skips_retrieval(
-    session: AsyncSession, monkeypatch
-) -> None:
+async def test_cache_hit_skips_retrieval(session: AsyncSession, monkeypatch) -> None:
     answer_cache.invalidate_all()
     user = await _user(session)
     answer_cache.store(
@@ -152,9 +148,7 @@ async def test_cache_hit_skips_retrieval(
 
 
 @pytest.mark.asyncio
-async def test_low_score_triggers_web_fallback(
-    session: AsyncSession, monkeypatch
-) -> None:
+async def test_low_score_triggers_web_fallback(session: AsyncSession, monkeypatch) -> None:
     answer_cache.invalidate_all()
     user = await _user(session)
     cap = _Capture()
@@ -180,9 +174,7 @@ async def test_low_score_triggers_web_fallback(
 
 
 @pytest.mark.asyncio
-async def test_llm_refusal_triggers_web_fallback(
-    session: AsyncSession, monkeypatch
-) -> None:
+async def test_llm_refusal_triggers_web_fallback(session: AsyncSession, monkeypatch) -> None:
     answer_cache.invalidate_all()
     user = await _user(session)
     cap = _Capture()

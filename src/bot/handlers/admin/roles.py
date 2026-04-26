@@ -158,9 +158,7 @@ async def on_admin_users(
     # Обрезаем — иначе на большой БД пробьём 4096-cap Telegram'а.
     lines = [f"<b>Пользователи</b> ({len(users)}):"]
     for u in users[:80]:
-        lines.append(
-            f"• <code>{u.telegram_id}</code> — {u.full_name or '—'} ({u.role.value})"
-        )
+        lines.append(f"• <code>{u.telegram_id}</code> — {u.full_name or '—'} ({u.role.value})")
     if len(users) > 80:
         lines.append(f"… и ещё {len(users) - 80}")
     await message.answer("\n".join(lines), parse_mode="HTML")

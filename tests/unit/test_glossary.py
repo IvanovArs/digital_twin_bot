@@ -53,11 +53,15 @@ def test_expand_caps_at_max() -> None:
     out = expand_query("методика Кошарского и культура")
     new_text = out[len("методика Кошарского и культура") :]
     # Each defn appended with a leading space → counting strict matches.
-    matches = sum(1 for d in [
-        "Кошарского-Уёмова",
-        "Волковой-Четверикова",
-        "корпоративная культура",
-    ] if d in new_text)
+    matches = sum(
+        1
+        for d in [
+            "Кошарского-Уёмова",
+            "Волковой-Четверикова",
+            "корпоративная культура",
+        ]
+        if d in new_text
+    )
     assert matches <= _MAX_EXPANSIONS
 
 

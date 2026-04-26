@@ -61,8 +61,7 @@ def load_chunks() -> list[dict[str, object]]:
     """
     if not CHUNKS_FILE.exists():
         raise FileNotFoundError(
-            "Индекс не найден. Сначала: python -m src.rag.ingest\n"
-            f"Ожидался файл: {CHUNKS_FILE}"
+            "Индекс не найден. Сначала: python -m src.rag.ingest\n" f"Ожидался файл: {CHUNKS_FILE}"
         )
     with CHUNKS_FILE.open("r", encoding="utf-8") as f:
         return [json.loads(line) for line in f]

@@ -70,7 +70,9 @@ async def on_glossary_doc(
     try:
         data = await state.get_data()
         slug = str(data.get("subject_slug") or "")
-        subj = (await session.execute(select(Subject).where(Subject.slug == slug))).scalar_one_or_none()
+        subj = (
+            await session.execute(select(Subject).where(Subject.slug == slug))
+        ).scalar_one_or_none()
         if subj is None:
             await message.answer("Предмет пропал. Начни заново: /teacher_glossary_upload")
             return

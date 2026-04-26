@@ -257,5 +257,3 @@ def feedback_brief(dialog_id: int, lang: str) -> InlineKeyboardMarkup:
             ]
         ],
     )
-
-

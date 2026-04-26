@@ -138,9 +138,7 @@ async def reindex_subject_in_background(
         for m in materials:
             m.indexed_at = now
         await session.commit()
-    log.info(
-        "reindex_done", subject=subject_slug or "*", updated=len(materials)
-    )
+    log.info("reindex_done", subject=subject_slug or "*", updated=len(materials))
 
 
 async def stats_24h(session: AsyncSession) -> dict[str, object]:
