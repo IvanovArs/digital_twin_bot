@@ -23,7 +23,12 @@ def _force_utf8_stdio() -> None:
     раз на старте. На POSIX — no-op."""
     if sys.platform != "win32":
         return
-    for stream in (sys.stdout, sys.stderr):
+    # На Linux mypy (где гоняется CI) считает блок ниже dead-code, потому что
+    # `sys.platform != "win32"` для него всегда True. На Windows ветка реально
+    # нужна — без неё процесс падает с UnicodeEncodeError ещё до того, как
+    # сработает любой log-filter. `unused-ignore` снимает «лишние» ignore'ы
+    # на той платформе, где соответствующая ошибка не возникает.
+    for stream in (sys.stdout, sys.stderr):  # type: ignore[unreachable,unused-ignore]
         with contextlib.suppress(AttributeError, OSError):
             stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr,unused-ignore]
 
