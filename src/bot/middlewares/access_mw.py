@@ -1,6 +1,6 @@
-"""Allowlist middleware: if ALLOWED_TELEGRAM_IDS is set, drop everyone else.
+"""Allowlist middleware: если ALLOWED_TELEGRAM_IDS задан — остальных дропаем.
 
-Used for closed testing. Empty allowlist disables the check.
+Используется для закрытого тестирования. Пустой allowlist — проверка выключена.
 """
 
 from __future__ import annotations

@@ -70,7 +70,19 @@ markers = [
 [tool.coverage.run]
 source = ["src"]
 branch = true
-omit = ["*/migrations/*", "*/__main__.py"]
+omit = [
+    "*/migrations/*",
+    "*/__main__.py",
+    # Точки входа и dev-launcher'ы — тестируются smoke'ом в CI отдельно,
+    # юнит-тестами не покрываются (асинхронный bootstrap, signal handlers,
+    # subprocess.Popen для llama-server и т.п.)
+    "src/bot/main.py",
+    "src/bot/run.py",
+    "src/rag/serve_llm.py",
+    "src/rag/cli_search.py",
+    "src/rag/cli_ask.py",
+    "src/logging_conf.py",
+]
 
 [tool.coverage.report]
 show_missing = true
@@ -79,6 +91,8 @@ exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
+    "raise SystemExit",
+    "if __name__ == .__main__.:",
 ]
 
 [tool.bandit]

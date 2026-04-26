@@ -1,4 +1,4 @@
-"""Admin services: upload materials + reindex in the background."""
+"""Admin-сервисы: загрузка материалов + переиндексация в фоне."""
 
 from __future__ import annotations
 
@@ -27,21 +27,19 @@ async def save_material(
     uploader: User,
     target_dir: Path,
 ) -> SubjectMaterial:
-    """Save an uploaded file on disk and upsert the materials row.
+    """Сохранить загруженный файл на диск и upsert-нуть строку material'а.
 
-    If the DB flush fails after the file has already been written, we
-    remove the orphan file so successive retries don't leave the disk
-    full of partially-committed uploads. ``dst.unlink(missing_ok=True)``
-    is safe even if the user is overwriting an existing material — the
-    previous checksum is recorded in the DB, and they can re-upload.
+    Если DB-flush упал после write на диск, удаляем orphan-файл — иначе
+    повторные ретраи накопят полу-закоммиченные uploads. ``dst.unlink(missing_ok=True)``
+    безопасен и при перезаписи существующего material'а: предыдущий
+    checksum в DB, можно переcкачать.
     """
     subject_dir = target_dir / subject.slug
     subject_dir.mkdir(parents=True, exist_ok=True)
     dst = subject_dir / filename
-    # Track whether we just created the file so rollback knows to clean
-    # it up. If it already existed (teacher re-uploading the same name),
-    # we don't delete it on DB failure — the previous payload is still
-    # the committed state.
+    # Запомним, создавали ли файл, чтобы rollback знал, что чистить.
+    # Если файл уже существовал (препод переcкачивает то же имя) —
+    # не удаляем при DB-failure: предыдущий payload — committed-state.
     newly_created = not dst.exists()
     dst.write_bytes(payload)
 
@@ -68,14 +66,14 @@ async def save_material(
         else:
             existing.checksum = checksum
             existing.uploaded_by_user_id = uploader.id
-            existing.indexed_at = None  # force reindex
+            existing.indexed_at = None  # форсим reindex
             row = existing
 
         await session.flush()
     except Exception:
-        # DB side failed after we wrote the payload to disk — a caller
-        # will rollback the session, so make the filesystem match by
-        # removing the orphan file (only if we created it fresh).
+        # DB упал после write на диск — caller сделает rollback сессии,
+        # выровняем файловую систему, удалив orphan (только если файл
+        # был свежесозданным).
         if newly_created:
             with contextlib.suppress(OSError):
                 dst.unlink(missing_ok=True)
@@ -85,18 +83,17 @@ async def save_material(
 
 
 def _invalidate_retrieval_caches() -> None:
-    """Drop every @lru_cache that snapshots chunks.jsonl / embeddings.npy.
+    """Сбросить все @lru_cache, кэширующие chunks.jsonl / embeddings.npy.
 
-    ``build_index`` rewrites those files on disk, but the in-process lru
-    caches were minted before the write and would happily serve the stale
-    snapshot until the next bot restart — students ended up getting
-    retrieval results for chunks that no longer exist in the index. Clear
-    them here so the very next retrieval re-loads the freshly rebuilt
-    artefacts.
+    ``build_index`` перезаписывает файлы на диске, но in-process lru-кэши
+    были созданы ДО write'а и продолжали отдавать stale-snapshot до
+    рестарта бота — студенты получали retrieval-результаты по чанкам,
+    которых уже нет в индексе. Чистим, чтобы следующий retrieval
+    подхватил свежие артефакты.
     """
-    # Deferred imports: admin_service is called from handler context; we
-    # don't want to pull sentence-transformers into the call graph at
-    # module import (it takes ~5 s and ~500 MB on first touch).
+    # Отложенный импорт: admin_service зовётся из handler-контекста; не
+    # хотим тянуть sentence-transformers в call-graph на module import
+    # (~5с и ~500 МБ при первом touch).
     from src.rag.hybrid import _bm25, _fingerprint_index
     from src.rag.retriever import _encode_query_cached, _load_index, load_chunks
 
@@ -117,9 +114,9 @@ async def reindex_subject_in_background(
     *,
     subject_slug: str | None = None,
 ) -> None:
-    """Run ingest in a worker thread, then update SubjectMaterial.indexed_at rows.
+    """Запустить ingest в worker-thread'е, потом проставить SubjectMaterial.indexed_at.
 
-    Called via asyncio.create_task so Telegram handlers don't block.
+    Вызывается через asyncio.create_task, чтобы Telegram-handler'ы не блокировались.
     """
     log.info("reindex_started", subject=subject_slug or "*")
     try:
@@ -128,8 +125,8 @@ async def reindex_subject_in_background(
         log.exception("reindex_failed", subject=subject_slug)
         return
 
-    # Caches first — any concurrent student question racing through here
-    # after build_index returned must see the new chunks.
+    # Сначала кэши — любой concurrent-вопрос студента, прилетевший после
+    # build_index, должен видеть новые чанки.
     _invalidate_retrieval_caches()
 
     async with sessionmaker() as session:
@@ -147,11 +144,11 @@ async def reindex_subject_in_background(
 
 
 async def stats_24h(session: AsyncSession) -> dict[str, object]:
-    """Return a compact stats payload for /admin_stats.
+    """Компактный stats-payload для /admin_stats.
 
-    Works on both SQLite (dev) and PostgreSQL (prod): the 24-hour cutoff is
-    computed in Python (SQLite can't subtract an interval from NOW()), and p95
-    is also Python-side since SQLite has no percentile_cont.
+    Работает на SQLite (dev) и PostgreSQL (prod): 24-часовой cutoff
+    считаем в Python (SQLite не умеет вычитать interval из NOW()), p95
+    тоже Python-side — у SQLite нет percentile_cont.
     """
     total_dialogs = (await session.execute(select(func.count(Dialog.id)))).scalar_one()
 

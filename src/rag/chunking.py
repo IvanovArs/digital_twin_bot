@@ -1,7 +1,7 @@
-"""Pure chunking logic (no I/O).
+"""Чистая логика чанкинга (без I/O).
 
-Keeps chunk lengths strictly bounded by ``chunk_size`` even when the
-source text has no proper sentence boundaries.
+Жёстко ограничивает длину каждого чанка ``chunk_size`` даже когда в
+исходном тексте нет нормальных границ предложений.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ class Chunk:
 
 
 def _pre_split_long_sentences(sentences: list[str], hard_limit: int) -> list[str]:
-    """Break any "sentence" longer than ``hard_limit`` with a hard cut."""
+    """Разбить любое «предложение» длиннее ``hard_limit`` жёстким резом."""
     out: list[str] = []
     for s in sentences:
         if len(s) <= hard_limit:

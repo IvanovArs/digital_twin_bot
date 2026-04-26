@@ -1,14 +1,4 @@
-"""System prompts and context formatting for the RAG pipeline.
-
-Design notes:
-* ``/no_think`` at the top of every system prompt disables Qwen3's
-  chain-of-thought so the whole token budget goes to the user-facing answer.
-* One tight few-shot example beats a list of "rules" — Qwen3 copies tone from
-  the example. Keep the example short so it doesn't eat the context budget.
-* Answers use Telegram HTML: ``<b>term</b>`` on key concepts, ``• bullet``
-  lines for enumerations. We instruct the model explicitly so it renders well
-  in aiogram ``parse_mode="HTML"``.
-"""
+"""System prompts and context formatting for the RAG pipeline."""
 
 from __future__ import annotations
 
@@ -40,81 +30,51 @@ _is_ocr_garbage = is_ocr_garbage_auto
 
 
 _SYSTEM_RU_TEMPLATE = """/no_think
-Ты — цифровой двойник преподавателя по {topic}. Отвечаешь студенту тепло, \
-по делу, с примерами. Только из фрагментов ниже — ничего не выдумывай. \
-Если ответа нет — скажи: «в материалах курса этого прямо не нашлось — \
-попробую поискать в интернете».
+Ты — цифровой двойник преподавателя по {topic}. Отвечай студенту \
+коротко и по делу, ТОЛЬКО на основе фрагментов ниже.
 
-Структура ответа строго в порядке:
-1) Определение одной фразой. Сохрани в скобках атрибуции, которые ЕСТЬ \
-во фрагменте: этимологию «(англ. X)»/«(греч. X)»/«(лат. X)» сразу после \
-термина и автора+год «(И. Фамилия, 1984)» в конце. Если их нет — без \
-скобок. Не выдумывай этимологию, авторов, иероглифы.
-2) 1–2 предложения прозой: смысл, ключевое различение.
-3) 3–5 пунктов маркированного списка с КОНКРЕТНЫМИ названиями из \
-фрагмента (если в тексте «акционеры, поставщики, клиенты» — пиши именно \
-их, а не «индивидуум/группа»). Каждый пункт: «<b>название</b> — что делает».
+ГЛАВНОЕ ПРАВИЛО: если во фрагментах нет ответа — скажи одной фразой \
+«в материалах курса этого прямо не нашлось» и остановись. Не додумывай.
+
+Список — только если во фрагментах действительно перечислены вещи \
+(тогда оформи буллетами «• »); иначе обычным текстом.
 
 Запрещено:
-• «в тексте», «во фрагменте», «согласно фрагменту», «упоминается», \
-«приводятся примеры», «согласно материалу», «(Фрагмент N)», «(стр. X)» в \
-скобках в самом ответе — пиши напрямую, без мета-ссылок;
-• **догадываться** об авторе и годе. Включай атрибуцию ТОЛЬКО если во \
-фрагменте есть точная строка вида «(И. О. Фамилия, 1984)» или «(Surname, \
-1984)» рядом с термином. Если фамилия выглядит подозрительно (странные \
-буквосочетания вроде «Бергаланфи», «Шеннер», «Краузер» — это OCR-мусор, не \
-доверяй ему). Если есть только фамилия без года или только год без фамилии — \
-оставь определение БЕЗ скобок. Лучше пропустить, чем выдумать;
-• повторять «это тоже X»; вступления, размышления вслух, извинения;
-• строка «Источник: …» в конце (бот добавит сам).
+• выдумывать авторов, годы, этимологию (греч./лат./англ.), иероглифы. \
+Включай атрибуцию ТОЛЬКО если во фрагменте есть точная строка вида \
+«(И. О. Фамилия, 1984)». Подозрительные фамилии («Бергаланфи», «Шеннер») \
+— это OCR-мусор, не используй;
+• писать «в тексте», «во фрагменте», «согласно материалу», «(стр. X)», \
+«(Фрагмент N)» — отвечай напрямую;
+• вступления, размышления вслух, извинения, повторы «это также X»;
+• строка «Источник: …» в конце — бот добавит сам.
 
-Формат (Telegram HTML): термины в <b>…</b>; буллеты «• »; цитаты в \
-<blockquote>…</blockquote>; формулы/код в <code>…</code>.
-
-Пример формы (копируй структуру, не содержание):
-Вопрос: «что такое онтология»
-Ответ: <b>Онтология</b> (греч. ontos — «сущее» + logos — «учение») — \
-формальная спецификация концептуализации предметной области (T. Gruber, 1993).
-
-По сути словарь домена, на котором могут договориться человек и машина. \
-Делятся на <b>верхнеуровневые</b> (объект, процесс, время) и <b>предметные</b> \
-(медицина, право, инженерия).
-
-• <b>Классы</b> — типы сущностей («Пациент», «Диагноз»);
-• <b>Отношения</b> — связи между классами («имеет_диагноз»);
-• <b>Аксиомы</b> — логические правила;
-• <b>Экземпляры</b> — конкретные объекты («Пациент №42»)."""
+Формат (Telegram HTML): ключевые термины в <b>…</b>; буллеты «• » \
+в начале строки; короткие цитаты в <blockquote>…</blockquote>; формулы \
+и код в <code>…</code>."""
 
 
 _SYSTEM_EN_TEMPLATE = """/no_think
-You are a digital twin of a professor teaching {topic}. Answer warm, direct, \
-with examples. Use only the fragments below — invent nothing. If no answer: \
-"the course materials don't cover this directly; I'll look it up online".
+You are a digital twin of a professor teaching {topic}. Answer the student \
+briefly and directly, USING ONLY the fragments below.
 
-Answer structure, in order:
-1) One-sentence definition. Preserve attributions FROM the fragment in \
-parentheses: etymology "(Eng. X)"/"(Gr. X)"/"(Lat. X)" right after the \
-term, author+year "(I. Surname, 1984)" at the end. If absent — no \
-parens. Don't invent etymology, authors, CJK.
-2) 1–2 sentences of prose: meaning, key distinction.
-3) 3–5 bullets with CONCRETE names from the fragment (if it lists \
-"shareholders, suppliers, clients", quote those — not abstract \
-"individual/group"). Each: "<b>name</b> — what it does".
+KEY RULE: if the fragments don't contain the answer — say in one sentence \
+"the course materials don't cover this directly" and stop. Don't fill gaps.
+
+Use bullets only if the fragments actually enumerate things ("• " per line); \
+otherwise plain prose.
 
 Forbidden:
-• "the text says", "in the fragment", "(Fragment N)", "(p. X)" inside the \
-answer — speak directly, no meta-citations;
-• **guessing** the author or year. Add attribution ONLY if the fragment \
-contains the exact string "(I. Surname, 1984)" near the term. If a surname \
-looks suspicious (odd letter clusters like "Бергаланфи", "Schenner", that's \
-OCR garbage — don't trust it). If only a surname without year or only a \
-year without surname — leave the definition WITHOUT parentheses. Better to \
-skip than invent;
-• repeating "this is also X"; intros, reasoning, apologies;
-• trailing "Source:" line (the bot adds it).
+• inventing authors, years, etymology (Gr./Lat./Eng.), CJK. Add attribution \
+ONLY when the fragment has an exact "(I. Surname, 1984)" string. Suspicious \
+surnames ("Бергаланфи", "Schenner") are OCR garbage — skip;
+• "the text says", "in the fragment", "(p. X)", "(Fragment N)" — speak \
+directly;
+• intros, reasoning aloud, apologies, "this is also X";
+• trailing "Source:" line — the bot adds it.
 
-Format (Telegram HTML): terms in <b>…</b>; bullets "• "; quotes in \
-<blockquote>…</blockquote>; code in <code>…</code>.
+Format (Telegram HTML): terms in <b>…</b>; bullets "• " at line start; \
+quotes in <blockquote>…</blockquote>; code in <code>…</code>.
 
 Fragments may be in Russian; translate inline when needed."""
 
@@ -136,23 +96,21 @@ def build_system_prompt(subject: Subject | None, lang: str = "ru") -> str:
 
 
 def format_context(hits: list[Hit], max_chars: int = MAX_CONTEXT_CHARS) -> str:
-    """Render hits as plain text chunks separated by ``---``, truncating to
-    ``max_chars``.
+    """Отрендерить hits как plain-text чанки через ``---``, обрезать до ``max_chars``.
 
-    Filenames are intentionally **not** included — Qwen3-4B was reading
-    "volkova_v_n_denisov_a_a_teoriya_sistem.pdf" out of the headers and
-    fabricating fake author attributions like «(В. К. Волков, 2005)» on
-    every term it didn't already know an author for. The bot prints the
-    real source list under the answer; the LLM never needs the filename.
+    Имена файлов **не** включаем намеренно — Qwen3-4B читал
+    "volkova_v_n_denisov_a_a_teoriya_sistem.pdf" из заголовков и фабриковал
+    фальшивые атрибуции вроде «(В. К. Волков, 2005)» на каждый термин,
+    автора которого не знал. Бот печатает реальный список источников под
+    ответом — LLM имя файла не нужно.
 
-    Page numbers are dropped too — the prompt forbids "(стр. X)" inline
-    citations anyway, and showing the page just tempts the model to break
-    that rule.
+    Номера страниц тоже срезаем — промпт запрещает "(стр. X)" inline-
+    цитирование, а показывать страницу — соблазн нарушить правило.
 
-    OCR-garbage chunks (see ``_is_ocr_garbage``) are skipped. If every hit
-    looks like garbage we still emit the single best one rather than an
-    empty context — the LLM can at least try, and the prompt's
-    "suspicious surnames are OCR" rule will usually kick in.
+    OCR-мусорные чанки (см. ``is_ocr_garbage_auto``) пропускаем. Если все
+    хиты — мусор, всё равно отдаём один лучший вместо пустого контекста:
+    LLM хоть попробует, а правило про «подозрительные фамилии — OCR»
+    обычно сработает.
     """
     cleaned: list[Hit] = [h for h in hits if not is_ocr_garbage_auto(h.text)]
     if not cleaned and hits:
@@ -169,17 +127,17 @@ def format_context(hits: list[Hit], max_chars: int = MAX_CONTEXT_CHARS) -> str:
                 parts.append(body[:budget].rstrip() + "…")
             break
         parts.append(body)
-        budget -= len(body) + 5  # account for the "\n---\n" separator
+        budget -= len(body) + 5  # учитываем разделитель "\n---\n"
         if budget <= 0:
             break
     return "\n---\n".join(parts)
 
 
-# ---------- message builders ----------
+# ---------- message-builder'ы ----------
 
-# Follow-up modifiers applied to the tail of the user message when the
-# student taps «Проще / Пример / Подробнее». All three are *additive*: they
-# don't discard the grounding rules, just bias the style and depth.
+# Follow-up-модификаторы, которые приклеиваются в хвост user-сообщения,
+# когда студент жмёт «Проще / Пример / Подробнее». Все три *аддитивные*:
+# не выкидывают grounding-правила, только смещают стиль и глубину.
 _FOLLOWUP_MODIFIERS: dict[str, dict[str, str]] = {
     "ru": {
         "simplify": (
@@ -226,16 +184,16 @@ _FOLLOWUP_MODIFIERS: dict[str, dict[str, str]] = {
 
 
 def apply_followup_modifier(user_content: str, modifier: str, lang: str) -> str:
-    """Return ``user_content`` with the follow-up tail appended.
+    """Вернуть ``user_content`` с приклеенным follow-up-хвостом.
 
-    Unknown modifier names pass through unchanged so a stray callback from
-    an older keyboard doesn't 500 the handler.
+    Неизвестные имена модификаторов проходят как есть — случайный callback
+    от старой клавиатуры не 500'нет handler.
     """
     tail = _FOLLOWUP_MODIFIERS.get(lang, _FOLLOWUP_MODIFIERS["ru"]).get(modifier)
     if not tail:
         return user_content
-    # Insert before the trailing "Answer:" / "Ответ:" line if present, so
-    # the modifier is the last instruction the model reads.
+    # Вставляем перед хвостом «Answer:» / «Ответ:» если он есть — модификатор
+    # должен быть последней инструкцией, которую модель прочитает.
     for marker in ("\n\nAnswer:", "\n\nОтвет:"):
         if user_content.endswith(marker):
             return user_content[: -len(marker)] + tail + marker
@@ -253,10 +211,10 @@ def build_messages(
 ) -> list[dict[str, str]]:
     system = build_system_prompt(subject, lang=lang)
     if brief:
-        # Brief mode: a single-paragraph, direct answer — no 3-part structure,
-        # no bullets unless the fragment explicitly enumerates things. The
-        # grounding and anti-hallucination rules from the system prompt still
-        # apply; we just skip the decorative structure.
+        # Brief-режим: один абзац, прямой ответ — без 3-частной структуры,
+        # без буллетов если только фрагмент явно не перечисляет. Grounding
+        # и анти-галлюцинационные правила system-prompt'а остаются — мы
+        # просто скипаем декоративную структуру.
         if lang == "en":
             user = (
                 f"Textbook fragments:\n{format_context(hits)}\n\n"
@@ -279,22 +237,22 @@ def build_messages(
         user = (
             f"Textbook fragments:\n{format_context(hits)}\n\n"
             f"Student's question: {question}\n\n"
-            "Answer strictly in this structure: (1) one-sentence definition "
-            "(skip etymology if unsure — never invent CJK or other foreign "
-            "scripts), (2) 1–2 sentences of prose explanation, (3) 3–5 "
-            "bulleted items with specifics. No 'Source:' line — the bot adds "
-            "it. No 'the text says' or 'is mentioned'.\n\nAnswer:"
+            "Answer in 2–5 short sentences using ONLY the fragments above. "
+            "If the fragments don't actually answer the question — say so in "
+            "one sentence and stop. Use bullets only if the fragments list "
+            "things; otherwise plain prose. No invented authors/years/etymology, "
+            "no 'the text says', no 'Source:' line.\n\nAnswer:"
         )
     else:
         user = (
             f"Фрагменты учебника:\n{format_context(hits)}\n\n"
             f"Вопрос студента: {question}\n\n"
-            "Ответь строго по структуре: (1) определение одной фразой "
-            "(этимологию пиши только если уверен — никаких иероглифов, "
-            "арабской вязи, выдуманных переводов; иначе пропусти скобки), "
-            "(2) 1–2 предложения объяснения обычным текстом, (3) 3–5 "
-            "маркированных пунктов с конкретикой. Строку «Источник: …» НЕ "
-            "пиши — бот сам добавит. Без «в тексте» и «упоминается».\n\nОтвет:"
+            "Ответь в 2–5 коротких предложениях ТОЛЬКО на основе фрагментов "
+            "выше. Если фрагменты не дают ответа — скажи это одной фразой и "
+            "остановись. Буллеты используй только если во фрагментах "
+            "действительно перечисление; иначе обычный текст. Без выдуманных "
+            "авторов/годов/этимологии, без «в тексте», без «Источник: …».\n\n"
+            "Ответ:"
         )
     if modifier:
         user = apply_followup_modifier(user, modifier, lang)
@@ -304,10 +262,10 @@ def build_messages(
     ]
 
 
-# Hard cap for each web snippet before it enters the prompt. DDG
-# occasionally returns 2 KB snippets that shove the whole context window
-# full of ads and breadcrumbs; 600 chars is enough to carry the
-# definition sentence while leaving room for the LLM response.
+# Жёсткий лимит на каждый web-сниппет до попадания в промпт. DDG иногда
+# возвращает 2 КБ сниппеты — забивают весь context-window рекламой и
+# breadcrumb'ами; 600 chars хватает на definition-предложение и оставляет
+# место под LLM-ответ.
 _MAX_WEB_SNIPPET_CHARS = 600
 
 
@@ -318,7 +276,7 @@ def build_web_messages(
     *,
     modifier: str | None = None,
 ) -> list[dict[str, str]]:
-    """Prompt for the web-fallback path. ``web_hits`` is ``list[WebHit]``."""
+    """Промпт для web-fallback-пути. ``web_hits`` — ``list[WebHit]``."""
     def _trim(s: str) -> str:
         s = (s or "").strip()
         if len(s) <= _MAX_WEB_SNIPPET_CHARS:

@@ -1,19 +1,18 @@
-"""Per-subject stats and coverage-gap reports for teachers.
+"""Per-subject статистика и отчёты по «дырам» покрытия для преподавателей.
 
-Two headline functions:
+Две главные функции:
 
-* ``subject_stats`` — volume, feedback distribution, latency percentiles,
-  web-fallback share, top repeat-questions for a single subject over a
-  rolling window. Feeds ``/teacher_stats``.
+* ``subject_stats`` — объём, распределение фидбека, latency-перцентили,
+  доля web-fallback, топ повторов вопросов по одному предмету в скользящем
+  окне. Питает ``/teacher_stats``.
 
-* ``coverage_gaps`` — questions that fell through to the web-fallback path
-  (``Dialog.subject_id IS NULL``) grouped by normalised form, most-frequent
-  first. Feeds ``/teacher_gaps`` — a literal TODO list for the course
-  author: these are the topics students ask about but the textbook doesn't
-  cover.
+* ``coverage_gaps`` — вопросы, ушедшие в web-fallback (``Dialog.subject_id
+  IS NULL``), сгруппированы по нормализованной форме, самые частые сверху.
+  Питает ``/teacher_gaps`` — буквально TODO-лист для автора курса: эти
+  темы студенты спрашивают, а учебник не покрывает.
 
-Both run in Python for percentiles/grouping so they work on SQLite (dev)
-and Postgres (prod) without vendor-specific SQL.
+Обе считают percentile/группировку в Python — работают и на SQLite (dev),
+и на Postgres (prod), без vendor-specific SQL.
 """
 
 from __future__ import annotations
@@ -28,14 +27,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Dialog, Feedback, Subject
 
-# Follow-up entries are already saved with a "[simplify] original question"
-# prefix; strip it so they don't inflate the top-questions list and so the
-# coverage-gaps view shows the real student phrasing.
+# Follow-up-записи сохраняются с префиксом «[simplify] исходный вопрос».
+# Срезаем — иначе они раздуют top-questions, а в coverage-gaps будет
+# видна реальная формулировка студента.
 _FOLLOWUP_TAG = re.compile(r"^\[(simplify|example|deepen)\]\s*", re.IGNORECASE)
 _WS = re.compile(r"\s+")
-# Leading greeting/question-word noise that makes otherwise-identical
-# questions look distinct. Strip only when it's at the very start so we
-# don't mangle the middle of a phrase.
+# Шум в начале (приветствие/question-word), из-за которого одинаковые
+# вопросы выглядят разными. Стрипаем только в самом начале, чтобы не
+# калечить середину фразы.
 _LEAD_JUNK = re.compile(
     r"^(что такое|что есть|расскажи про|расскажи о|объясни|что значит|определение)\s+",
     re.IGNORECASE,
@@ -43,8 +42,8 @@ _LEAD_JUNK = re.compile(
 
 
 def _normalise_question(q: str) -> str:
-    """Collapse minor variations so «Что такое система», «что есть система?»
-    and «Система — это?» group together in top-questions and gaps reports."""
+    """Свернуть минорные вариации — «Что такое система», «что есть система?»,
+    «Система — это?» сгруппируются в top-questions и gaps-отчётах."""
     s = _FOLLOWUP_TAG.sub("", q or "").strip().lower()
     s = _LEAD_JUNK.sub("", s).strip()
     s = s.rstrip("?.,!;: —-")
@@ -84,7 +83,7 @@ async def subject_stats(
     days: int = 7,
     top_n: int = 10,
 ) -> SubjectStats | None:
-    """Return rolling stats for one subject; ``None`` if slug is unknown."""
+    """Скользящая статистика по одному предмету; ``None`` если slug неизвестен."""
     subj = (
         await session.execute(select(Subject).where(Subject.slug == subject_slug))
     ).scalar_one_or_none()
@@ -93,14 +92,14 @@ async def subject_stats(
 
     cutoff = datetime.now(UTC) - timedelta(days=days)
 
-    # Total (lifetime) diagogs for this subject.
+    # Всего (за всё время) диалогов по этому предмету.
     total = (
         await session.execute(
             select(func.count(Dialog.id)).where(Dialog.subject_id == subj.id)
         )
     ).scalar_one() or 0
 
-    # Windowed dialogs + latencies + questions.
+    # В окне: диалоги + latency + вопросы.
     windowed = list(
         (
             await session.execute(
@@ -113,7 +112,7 @@ async def subject_stats(
     )
     latencies = [int(d.latency_ms) for d in windowed if d.latency_ms is not None]
 
-    # Feedback on this subject's windowed dialogs.
+    # Feedback по диалогам этого предмета в окне.
     ratings = list(
         (
             await session.execute(
@@ -130,11 +129,11 @@ async def subject_stats(
     down = sum(1 for r in ratings if r <= 2)
     avg = (sum(ratings) / len(ratings)) if ratings else None
 
-    # Web-fallback ratio: dialogs where the user asked a question assigned
-    # to this subject by the router but retrieval failed. We can't read a
-    # historic "intended subject" off a NULL subject_id, so we approximate
-    # via the user's ``current_subject_slug`` — good enough for a rolling
-    # coverage trend. See ``coverage_gaps`` for the global view.
+    # Доля web-fallback: диалоги, где юзер спросил по этому предмету
+    # (так роутер решил), но retrieval провалился. По NULL-subject_id
+    # «исторический intended subject» не вытащишь — приближаем через
+    # пользовательский ``current_subject_slug``. Достаточно для тренда;
+    # глобальный взгляд — в ``coverage_gaps``.
     web_rows = list(
         (
             await session.execute(
@@ -155,7 +154,7 @@ async def subject_stats(
     denom = len(windowed) + web_fallback_count
     web_ratio = (web_fallback_count / denom) if denom else 0.0
 
-    # Top repeated questions (normalised).
+    # Топ повторов вопросов (нормализованных).
     counter: Counter[str] = Counter()
     originals: dict[str, str] = {}
     for d in windowed:
@@ -198,11 +197,10 @@ async def coverage_gaps(
     days: int = 30,
     limit: int = 50,
 ) -> list[GapEntry]:
-    """Questions that hit the web-fallback path, grouped by normalised form.
+    """Вопросы, ушедшие в web-fallback, сгруппированы по нормализованной форме.
 
-    The point of this list is a TODO for the course author: «эти темы
-    студенты спрашивают, но учебник не отвечает — либо дополни материал,
-    либо исключи из программы».
+    Это TODO-лист для автора курса: «эти темы студенты спрашивают, но
+    учебник не отвечает — дополни материал или исключи из программы».
     """
     cutoff = datetime.now(UTC) - timedelta(days=days)
     rows = list(

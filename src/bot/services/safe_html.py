@@ -1,20 +1,20 @@
-"""Sanitiser for any Telegram ``parse_mode="HTML"`` message body whose
-source is partially user-controlled (LLM output, teacher-typed FAQ,
-glossary definitions).
+"""Санитайзер для любого Telegram-``parse_mode="HTML"`` тела, источник
+которого частично контролируется юзером (LLM-вывод, FAQ от препода,
+определения глоссария).
 
-The rules:
+Правила:
 
-* Only a short whitelist of Telegram-supported inline tags survives.
-* Everything else is ``html.escape``-d.
-* Open/close tags are balanced — an unclosed ``<b>`` would otherwise make
-  Telegram reject the whole edit with «can't parse entities».
-* ``_truncate_for_telegram`` caps the body below the 4096-char ceiling
-  without cutting a tag in half.
+* Выживает только короткий whitelist Telegram-inline-тегов.
+* Всё остальное — ``html.escape``.
+* Open/close-теги балансируются — незакрытый ``<b>`` иначе сделает так,
+  что Telegram отвергнет весь edit с «can't parse entities».
+* ``truncate_for_telegram`` режет тело ниже 4096-char-потолка, не
+  разрезая тег пополам.
 
-Used by the RAG answer renderer and by the FAQ/glossary short-circuit
-paths. Teachers type answers in plain prose or light HTML; we sanitise on
-write-to-user so a stray ``</b>`` can't break the render for every
-student who asks the same question.
+Используется RAG-renderer'ом и short-circuit-путями FAQ/глоссария.
+Преподаватели пишут ответы прозой или лёгким HTML; санитайзим на
+write-to-user — кривой ``</b>`` не сломает рендеринг для всех студентов,
+задающих тот же вопрос.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from __future__ import annotations
 import html
 import re
 
-# Keep the list short — every entry is a place where a malformed tag from
-# the source can break parse_mode="HTML" for the whole message.
+# Список короткий — каждая запись — место, где кривой тег источника
+# может сломать parse_mode="HTML" для всего сообщения.
 ALLOWED_TAGS = ("b", "strong", "i", "em", "u", "s", "code", "pre", "blockquote")
 
 _ALLOWED_TAG_RE = re.compile(
@@ -39,11 +39,10 @@ TG_MESSAGE_LIMIT = 4096
 
 
 def balance_tags(text: str) -> str:
-    """Drop orphan close tags and unclosed open tags so Telegram accepts
-    the HTML. LLMs and hand-typed inputs occasionally emit half-tags
-    ("<b>foo" with no closer, or "</b>" with no opener). We walk matches
-    as a stack — orphans are quietly dropped and the surrounding text is
-    kept untouched.
+    """Дроп orphan-close и незакрытых open-тегов — Telegram принимает HTML.
+    LLM и руководящие inputs иногда эмитят пол-тегов ("<b>foo" без
+    закрытия, "</b>" без открытия). Идём по матчам как по стеку — orphan'ы
+    тихо выкидываются, окружающий текст не трогается.
     """
     matches = list(_TAG_TOKEN_RE.finditer(text))
     if not matches:
@@ -77,22 +76,21 @@ def balance_tags(text: str) -> str:
 
 
 def safe_html(text: str) -> str:
-    """Escape ``text`` for Telegram but preserve the whitelisted tags.
+    """Экранировать ``text`` для Telegram, сохранив whitelist-теги.
 
-    Compromise between raw-escape (loses all formatting) and no-escape
-    (stray ``<`` breaks the message): escape everything, re-enable allowed
-    tags via regex, then balance them so an unclosed ``<b>`` doesn't kill
-    the whole edit.
+    Компромисс между raw-escape (теряет всё форматирование) и no-escape
+    (случайный ``<`` ломает сообщение): экранируем всё, восстанавливаем
+    allowed-теги regex'ом, балансируем — незакрытый ``<b>`` не валит edit.
     """
     restored = _ALLOWED_TAG_RE.sub(r"<\1\2>", html.escape(text))
     return balance_tags(restored)
 
 
 def truncate_for_telegram(body: str) -> str:
-    """Cap ``body`` to Telegram's 4096-char editMessageText limit.
+    """Обрезать ``body`` до 4096-char-лимита editMessageText в Telegram.
 
-    Slices 16 chars below the cap and re-balances tags so an open ``<b>``
-    cut mid-word doesn't reject the entire message.
+    Срезаем на 16 chars ниже потолка и ре-балансируем теги — open-``<b>``
+    разрезанный посреди слова не отвергнет всё сообщение.
     """
     if len(body) <= TG_MESSAGE_LIMIT:
         return body

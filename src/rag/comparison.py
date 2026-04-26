@@ -1,15 +1,15 @@
-"""Detect and handle «сравни X и Y» questions.
+"""Детект и обработка вопросов «сравни X и Y».
 
-Patterns we recognise in user queries:
+Паттерны, которые ловим в запросах юзера:
 
 * «сравни X и Y», «сравните X с Y»
 * «разница между X и Y», «чем отличается X от Y», «разлчия X и Y»
 * EN: «compare X and Y», «difference between X and Y»,
   «how is X different from Y»
 
-When detected, the QA pipeline runs two parallel retrievals (one per term)
-and merges the hits before calling the LLM with a comparison-specific
-user prompt.
+При детекте QA-пайплайн делает два параллельных retrieval'а (по одному
+на термин) и мержит хиты перед вызовом LLM с comparison-специфичным
+user-промптом.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from src.rag.prompts import apply_followup_modifier, build_system_prompt, format
 from src.rag.retriever import Hit
 from src.subjects import Subject
 
-# Each pattern must capture two groups: term_a and term_b. The trailing
-# punctuation is stripped by ``detect_comparison`` so the terms stay clean.
+# Каждый паттерн должен захватывать две группы: term_a и term_b. Хвостовая
+# пунктуация срезается в ``detect_comparison`` — термины остаются чистыми.
 _PATTERNS = [
     # ru: сравни/сравните X и Y | X с Y
     re.compile(r"сравни(?:те)?\s+(.+?)\s+(?:и|с)\s+(.+)$", re.IGNORECASE),
@@ -40,8 +40,8 @@ _PATTERNS = [
     re.compile(r"^(.+?)\s+(?:vs\.?|versus)\s+(.+)$", re.IGNORECASE),
 ]
 
-# Trim trailing punctuation and short noise words from captured terms so
-# «сравни стейкхолдера и акционера?» → «стейкхолдера», «акционера».
+# Срезаем хвостовую пунктуацию и короткие noise-слова из захваченных
+# терминов — «сравни стейкхолдера и акционера?» → «стейкхолдера», «акционера».
 _TERM_TRIM = re.compile(r"[?.!,;:—\s]+$")
 _LEAD_JUNK = re.compile(r"^(что\s+такое|что\s+есть|the|a|an)\s+", re.IGNORECASE)
 
@@ -53,11 +53,10 @@ def _clean_term(t: str) -> str:
 
 
 def detect_comparison(question: str) -> tuple[str, str] | None:
-    """Return ``(term_a, term_b)`` if ``question`` is a comparison query.
+    """Вернуть ``(term_a, term_b)`` если ``question`` — comparison-запрос.
 
-    Both terms must be non-empty and at least 2 characters after cleanup —
-    otherwise we'd trigger on a one-letter noise match. Returns ``None`` on
-    no match.
+    Оба термина — непустые и ≥ 2 символов после cleanup'а; иначе матч на
+    одну букву шума. Без матча — ``None``.
     """
     q = (question or "").strip().rstrip("?.!")
     if not q:
@@ -74,12 +73,11 @@ def detect_comparison(question: str) -> tuple[str, str] | None:
 
 
 def merge_hits(hits_a: list[Hit], hits_b: list[Hit], max_total: int = 8) -> list[Hit]:
-    """Interleave two hit lists, drop duplicates by text, cap the total.
+    """Чередуем два списка хитов, дропаем дубликаты по тексту, ограничиваем total.
 
-    Interleaving (not concatenation) keeps both terms represented even when
-    ``max_total`` is small. Dedup uses the first 200 chars of ``hit.text``
-    as a cheap fingerprint — enough to catch the same chunk appearing in
-    both retrievals.
+    Чередование (а не конкатенация) сохраняет оба термина представленными даже
+    при маленьком ``max_total``. Dedup по первым 200 символам ``hit.text`` —
+    дёшево и достаточно, чтобы поймать один и тот же чанк в обоих retrieval'ах.
     """
     seen: set[str] = set()
     out: list[Hit] = []
@@ -108,10 +106,9 @@ def build_comparison_messages(
     *,
     modifier: str | None = None,
 ) -> list[dict[str, str]]:
-    """Build a side-by-side comparison prompt. ``modifier`` is forwarded to
-    the tail of the user message so «Проще / Пример / Подробнее» on a
-    comparison answer still reshapes the tone without discarding the
-    table format."""
+    """Собрать side-by-side comparison-промпт. ``modifier`` идёт в хвост
+    user-сообщения — «Проще/Пример/Подробнее» поверх comparison-ответа
+    меняет тон, не выкидывая table-формат."""
     system = build_system_prompt(subject, lang=lang)
     context = format_context(hits)
     if lang == "en":

@@ -1,8 +1,8 @@
-"""Mirror `courses.yaml` → `subjects` table at bot startup.
+"""Зеркалит `courses.yaml` → таблицу `subjects` на старте бота.
 
-Idempotent: adds new subjects, updates titles/descriptions on existing ones,
-marks subjects missing from courses.yaml as inactive (does NOT delete them —
-we want to keep historical FK references from dialogs/materials).
+Идемпотентно: добавляет новые предметы, обновляет titles/descriptions у
+существующих, отсутствующие в courses.yaml помечает inactive (НЕ удаляет —
+сохраняем исторические FK-ссылки из dialogs/materials).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ log = structlog.get_logger(__name__)
 
 
 async def sync_subjects(session: AsyncSession, catalog: Catalog) -> None:
-    """Sync courses.yaml catalog into the subjects table (upsert + deactivate-missing)."""
+    """Синк courses.yaml-каталога в таблицу subjects (upsert + deactivate-missing)."""
     yaml_slugs: set[str] = set(catalog.slugs())
 
     existing: dict[str, SubjectRow] = {

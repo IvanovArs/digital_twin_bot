@@ -1,9 +1,8 @@
-"""Bot UI strings, bilingual RU + EN.
+"""UI-строки бота, билингва RU + EN.
 
-Each constant is a ``Tr`` dict keyed by language code.
-Use ``tr(lang, HELLO)`` to render it; ``tr_all(HELLO)`` returns every variant
-(needed for reply-keyboard message filters that must match whatever text the
-user's client currently shows).
+Каждая константа — ``Tr``-dict с ключами по языку. Используй ``tr(lang, HELLO)``
+для рендера; ``tr_all(HELLO)`` возвращает все варианты (нужно для фильтров
+reply-keyboard, которые должны матчить любой текст, что показал клиент).
 """
 
 from __future__ import annotations
@@ -16,28 +15,28 @@ SUPPORTED_LANGS = ("ru", "en")
 
 
 def normalize_lang(code: str | None) -> str:
-    """Map a Telegram ``language_code`` to one of ``SUPPORTED_LANGS``.
+    """Свести Telegram ``language_code`` к одному из ``SUPPORTED_LANGS``.
 
-    Falls back to :data:`DEFAULT_LANG` for unknown codes.
+    Неизвестные коды фолбечутся в :data:`DEFAULT_LANG`.
     """
     if not code:
         return DEFAULT_LANG
     code = code.lower().split("-")[0]
     if code in SUPPORTED_LANGS:
         return code
-    # Treat ex-USSR Cyrillic locales as Russian for a better default
+    # Экс-СССР-кириллические локали считаем русскими для лучшего дефолта
     if code in {"uk", "be", "kk", "ky", "tg", "uz", "az", "mo"}:
         return "ru"
     return "en"
 
 
 def tr(lang: str, t: Tr) -> str:
-    """Render ``t`` for ``lang``, falling back to RU then EN."""
+    """Отрендерить ``t`` для ``lang``, fallback в RU потом EN."""
     return t.get(lang) or t.get(DEFAULT_LANG) or t.get("en") or ""
 
 
 def tr_all(t: Tr) -> set[str]:
-    """All distinct non-empty variants — for matching reply-button text."""
+    """Все уникальные непустые варианты — для матча текста reply-кнопок."""
     return {v for v in t.values() if v}
 
 
@@ -269,6 +268,14 @@ STATUS_THINKING: Tr = {
     "ru": "Формулирую ответ по курсу «{subject}»…",
     "en": "Composing an answer from the “{subject}” course…",
 }
+STATUS_THINKING_FOUND: Tr = {
+    "ru": "Нашёл {n} фрагментов в курсе «{subject}» — формулирую ответ…",
+    "en": "Found {n} fragments in “{subject}” — composing the answer…",
+}
+STATUS_ANALYSING: Tr = {
+    "ru": "🧠 Анализирую фрагменты…",
+    "en": "🧠 Analysing fragments…",
+}
 STATUS_WEB_SEARCH: Tr = {
     "ru": "🌐 В учебниках ответа нет — ищу в интернете…",
     "en": "🌐 Not in the textbooks — searching the web…",
@@ -277,10 +284,6 @@ STATUS_WEB_THINKING: Tr = {
     "ru": "🧠 Формулирую ответ по источникам из сети…",
     "en": "🧠 Composing an answer from the web sources…",
 }
-STATUS_RETRIEVAL_FOUND: Tr = {
-    "ru": "✅ Нашёл {n} фрагментов (релевантность {score}) — курс «{subject}»",
-    "en": "✅ Found {n} fragments (relevance {score}) in “{subject}”",
-}
 STATUS_WEB_VISITING: Tr = {
     "ru": "🔗 Смотрю {host}…",
     "en": "🔗 Looking at {host}…",
@@ -288,10 +291,6 @@ STATUS_WEB_VISITING: Tr = {
 STATUS_WEB_FOUND: Tr = {
     "ru": "✅ Нашёл {n} источников: {hosts} — читаю…",
     "en": "✅ Found {n} sources: {hosts} — reading…",
-}
-STATUS_HEARTBEAT: Tr = {
-    "ru": "💭 Думаю… ({s}s)",
-    "en": "💭 Thinking… ({s}s)",
 }
 STATUS_STREAMING: Tr = {
     "ru": "✍️ Печатаю ответ — текст появляется прямо в сообщении.",
@@ -494,7 +493,7 @@ BTN_INSTRUCTIONS: Tr = {
 
 
 def subject_title(subject: object, lang: str) -> str:
-    """Pick EN / RU title on a Subject (ORM row or pydantic) based on lang."""
+    """Выбрать EN/RU-title у Subject (ORM-ряд или pydantic) по языку."""
     if lang == "en" and getattr(subject, "title_en", None):
         return str(subject.title_en)  # type: ignore[attr-defined]
     return (

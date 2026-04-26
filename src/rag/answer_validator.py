@@ -1,23 +1,8 @@
-"""Post-LLM validator that strips ungrounded attributions from the answer.
+"""Strip ungrounded attributions from the LLM answer.
 
-Qwen3-4B likes to invent confident-looking bibliographic tails even when the
-system prompt forbids it: «(G. Bernaldi, 1984)» from the OCR-mangled
-«Бергаланфи», «(В. К. Волков, 2005)» from a filename header, made-up
-etymologies like «(греч. ontos — бытие)» that weren't in the fragment.
-
-This module is the universal safety net: it scans the final answer for the
-three categories the model hallucinates most (author attributions, foreign
-etymologies, CJK/Arabic glosses) and removes any bracket whose contents
-aren't grounded in the retrieved chunks. Same check applies to every
-textbook we index — no per-book tweaks.
-
-Design:
-  * We match *shapes*, not specific surnames/years. Anything that looks like
-    "(Surname, 1984)" or "(И. О. Фамилия)" or "(лат. foo — bar)" is a
-    candidate; we keep it only if the key tokens (surname, year, foreign
-    word, CJK character) all appear verbatim in the union of hit texts.
-  * Normalisation is intentionally light — lowercase + whitespace collapse.
-    Stronger fuzz would let hallucinated close-matches slip through.
+Targets the three things Qwen3 hallucinates most: author brackets,
+foreign etymologies, CJK/Arabic glosses. Match by shape, keep only if
+the key tokens appear verbatim in the retrieved chunks.
 """
 
 from __future__ import annotations
@@ -46,8 +31,8 @@ _ATTRIBUTION_RE = re.compile(
     r")\s*\)",
 )
 
-# Etymology bracket. We accept the common RU/EN language prefixes used in
-# textbooks — «(лат. X — Y)», «(греч. X)», «(Eng. X)», «(Lat. X)», …
+# Скобка этимологии. Принимаем частые RU/EN-префиксы из учебников —
+# «(лат. X — Y)», «(греч. X)», «(Eng. X)», «(Lat. X)», …
 _ETYMOLOGY_LANG_ALT = (
     "англ|лат|греч|нем|фр|ит|исп|яп|кит|араб"
     "|Eng|Lat|Gr|Fr|Ger|It|Sp|Jp|Ch|Ar"
@@ -57,9 +42,9 @@ _ETYMOLOGY_RE = re.compile(
     flags=re.IGNORECASE,
 )
 
-# Single runs of CJK / Arabic / Hebrew / Devanagari — never legitimately
-# present in a Russian CS textbook, always signal a model that decided to
-# decorate a term with script it doesn't actually know.
+# Одиночные блоки CJK / Arabic / Hebrew / Devanagari — никогда легитимно
+# не встречаются в русском CS-учебнике, всегда сигнал «модель украсила
+# термин скриптом, которого не знает».
 _FOREIGN_SCRIPT_RE = re.compile(
     r"[\u4e00-\u9fff"  # CJK Unified
     r"\u3040-\u309f\u30a0-\u30ff"  # Hiragana + Katakana
@@ -70,18 +55,16 @@ _FOREIGN_SCRIPT_RE = re.compile(
     r"]+"
 )
 
-# Bare years in the answer prose. The existing `_ATTRIBUTION_RE` only
-# catches `(Surname, 1984)` — but the model also likes to drop years
-# free-form («был введён в 1968 году»). If the year isn't in the corpus,
-# it's a fabrication and we blank it out in place. We use word-boundaries
-# so "1984" inside "ISO 19841" wouldn't match.
+# Голые годы в прозе ответа. `_ATTRIBUTION_RE` ловит `(Surname, 1984)`,
+# но модель ещё любит free-form: «был введён в 1968 году». Если года в
+# корпусе нет — это выдумка, гасим. Word-boundary'ы — чтобы «1984»
+# внутри «ISO 19841» не матчилось.
 _PROSE_YEAR_RE = re.compile(r"(?<!\d)(1[5-9]\d{2}|20[0-2]\d)(?!\d)")
 
-# Date ranges and decades — another common hallucination shape that the
-# bare-year pass misses. Matches «в 1970-1980-х», «в 1990-х годах»,
-# «с середины 90-х», «1960-е—1980-е», «in the 1970s». We consider the
-# range grounded if BOTH endpoints (or the decade's 4-digit anchor)
-# appear in the corpus.
+# Диапазоны дат и десятилетий — ещё одна частая форма галлюцинации,
+# которую bare-year-pass пропускает. Матчим «в 1970-1980-х», «в 1990-х»,
+# «с середины 90-х», «1960-е—1980-е», «in the 1970s». Считаем диапазон
+# заземлённым, если ОБА endpoint'а (или 4-значный якорь декады) есть в корпусе.
 _DECADE_RE = re.compile(
     r"(?<!\d)("
     r"1[5-9]\d{2}[\-–—]1[5-9]\d{2}(?:[\-–—]?[ехe]?)?"  # 1970-1980 / 1970-1980-е
@@ -123,17 +106,16 @@ class ValidationReport:
 
 
 def _attribution_grounded(bracket: str, corpus: str) -> bool:
-    """True if the surname AND (if present) year both appear in ``corpus``.
+    """True если фамилия И (если есть) год оба встречаются в ``corpus``.
 
-    Surname matches as a **word prefix** (``(?<!\\w)фриман`` matches «Фриману»
-    in the dative case, but doesn't trigger on an unrelated word like
-    «Бергаланфи»). Year is compared verbatim. Both constraints must hold —
-    a surname alone without its year, or a year without its surname, is
-    exactly what we don't want to ground.
+    Фамилия матчится как **префикс слова** (``(?<!\\w)фриман`` ловит «Фриману»
+    в дательном, но не срабатывает на не относящееся слово вроде
+    «Бергаланфи»). Год сравнивается verbatim. Оба условия обязательны —
+    фамилия без года или год без фамилии — это и есть то, что не должно проходить.
     """
     surname_m = re.search(r"[A-ZА-ЯЁ][\wа-яё\-]{2,}", bracket)
     if surname_m is None:
-        return False  # odd shape — better to drop than to keep
+        return False  # странная форма — лучше дропнуть, чем оставить
     surname = surname_m.group(0).lower()
     # Word-boundary on the left, any suffix on the right — tolerates Russian
     # case inflection while still rejecting wholly different surnames.

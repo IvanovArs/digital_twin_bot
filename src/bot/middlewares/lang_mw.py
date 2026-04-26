@@ -1,8 +1,7 @@
-"""Inject the user's UI language (``lang``) into handler kwargs.
+"""Инжектит UI-язык юзера (``lang``) в kwargs хендлера.
 
-Uses Telegram's ``language_code`` on the incoming user. Supported: ru, en.
-All other codes fall back to English except ex-USSR locales → Russian
-(see :func:`src.bot.texts.normalize_lang`).
+Берёт ``language_code`` из Telegram-юзера. Поддержаны: ru, en. Остальные
+коды падают в EN, кроме экс-СССР-локалей → RU (см. :func:`src.bot.texts.normalize_lang`).
 """
 
 from __future__ import annotations

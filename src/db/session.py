@@ -1,4 +1,4 @@
-"""Async SQLAlchemy engine + session factory, lazily constructed once per process."""
+"""Async SQLAlchemy engine + session-factory, лениво создаётся один раз на процесс."""
 
 from __future__ import annotations
 
@@ -19,11 +19,11 @@ from src.config import settings
 def get_engine() -> AsyncEngine:
     kwargs: dict[str, Any] = {"echo": False}
 
-    # Pool options only make sense for server-based drivers; SQLite uses NullPool
-    # and rejects pool_size / max_overflow entirely.
-    # Sized for a small VPS (4 vCPU) — a Telegram bot doesn't need many
-    # concurrent sessions. Recycle idle connections every 30 min so Postgres
-    # doesn't drop them behind our back.
+    # Pool-опции имеют смысл только для серверных драйверов; SQLite использует
+    # NullPool и pool_size/max_overflow полностью отбивает.
+    # Размер под маленький VPS (4 vCPU) — Telegram-боту не нужно много
+    # concurrent-сессий. Recycle idle-соединений каждые 30 мин, чтобы Postgres
+    # не дропал их за нашей спиной.
     if not settings.DB_URL.startswith("sqlite"):
         kwargs.update(
             pool_pre_ping=True,

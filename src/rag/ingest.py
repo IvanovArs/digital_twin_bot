@@ -1,14 +1,14 @@
-"""Build the unified RAG index from all subjects in courses.yaml.
+"""Сборка единого RAG-индекса по всем предметам из courses.yaml.
 
-One global index lives at:
-    data/index/embeddings.npy  — float32 matrix [N, D], L2-normalized
-    data/index/chunks.jsonl    — one JSON line per row, with subject_slug + source metadata
-    data/index/meta.json       — embedding model, chunk params, timestamp
+Один глобальный индекс лежит в:
+    data/index/embeddings.npy  — float32 матрица [N, D], L2-нормированная
+    data/index/chunks.jsonl    — по одной JSON-строке на ряд, с subject_slug + source-метаданными
+    data/index/meta.json       — embedding-модель, chunk-параметры, timestamp
 
-Usage:
-    python -m src.rag.ingest                 # re-build from scratch
-    python -m src.rag.ingest --subject slug  # rebuild only one subject's chunks
-                                             #   (embedding model must match existing)
+Запуск:
+    python -m src.rag.ingest                 # пересборка с нуля
+    python -m src.rag.ingest --subject slug  # перестроить только чанки одного предмета
+                                             #   (embedding-модель должна совпасть с существующей)
 """
 
 from __future__ import annotations
@@ -23,10 +23,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Windows console defaults to cp1251 in RU locales — emoji like "✅" and
-# Cyrillic letters in print() crash the script with UnicodeEncodeError.
-# Force UTF-8 on stdout/stderr before any print fires so progress and the
-# final summary survive.
+# Windows-консоль по умолчанию cp1251 в RU-локалях — emoji вроде «✅» и
+# кириллица в print() валят скрипт UnicodeEncodeError'ом. Форсим UTF-8 на
+# stdout/stderr до первого print'а — прогресс и финальный summary выживают.
 if sys.platform == "win32":
     for stream in (sys.stdout, sys.stderr):
         with contextlib.suppress(AttributeError, OSError):
@@ -47,16 +46,15 @@ from src.rag.config import (
 )
 from src.rag.ocr_filter import is_ocr_garbage_auto
 
-# OCR setup: PyMuPDF's get_textpage_ocr() shells out to Tesseract via the
-# TESSDATA_PREFIX env var. We ship rus/eng/osd traineddata under
-# data/models/tessdata/ and point Tesseract at it before importing fitz so
-# scanned Russian textbooks (e.g. Volkova) get OCR'd instead of silently
-# producing zero chunks.
+# OCR-setup: get_textpage_ocr() из PyMuPDF дёргает Tesseract через
+# TESSDATA_PREFIX. Шипим rus/eng/osd traineddata под data/models/tessdata/
+# и направляем туда Tesseract до import fitz — сканированные русские
+# учебники OCR-ятся вместо тихого нуля чанков.
 _LOCAL_TESSDATA = MODELS_DIR / "tessdata"
 if _LOCAL_TESSDATA.exists() and "TESSDATA_PREFIX" not in os.environ:
     os.environ["TESSDATA_PREFIX"] = str(_LOCAL_TESSDATA)
-# Make sure tesseract.exe is reachable on Windows even if the user didn't
-# add it to their PATH; UB-Mannheim's installer puts it in a fixed location.
+# Гарантируем, что tesseract.exe доступен на Windows, даже если юзер не
+# добавил его в PATH; инсталлер UB-Mannheim кладёт его в фиксированное место.
 if sys.platform == "win32":
     _DEFAULT_TESS_DIR = r"C:\Program Files\Tesseract-OCR"
     if Path(_DEFAULT_TESS_DIR, "tesseract.exe").exists():
@@ -72,8 +70,8 @@ from src.subjects import Subject, load_catalog  # noqa: E402
 _WS = re.compile(r"[ \t]+")
 _MULTI_NL = re.compile(r"\n{3,}")
 _HYPHEN_BREAK = re.compile(r"(\w+)-\n(\w+)")
-# Soft hyphens (U+00AD) and the non-breaking space variants PyMuPDF emits
-# from Russian PDFs — they wreck both display and embedding tokenisation.
+# Soft-hyphen'ы (U+00AD) и non-breaking-space-варианты, которые PyMuPDF
+# эмитит из русских PDF — ломают и display, и embedding-tokenisation.
 _INVISIBLE = str.maketrans({"\u00ad": "", "\u200b": "", "\u200c": "", "\u200d": ""})
 
 
@@ -86,13 +84,13 @@ def _clean(raw: str) -> str:
 
 
 def _extract_pdf(path: Path, *, ocr_lang: str = "rus+eng") -> list[tuple[int, str]]:
-    """Extract text from every page.
+    """Извлечь текст из каждой страницы.
 
-    First try the native PDF text layer; if a page has none (typical for scanned
-    textbooks), fall back to OCR via PyMuPDF's built-in Tesseract bridge.
-    OCR requires Tesseract to be installed on the system with the requested
-    language data files. If Tesseract is missing, OCR is silently skipped and
-    only pages with a text layer are ingested — the user is warned on stderr.
+    Сначала — родной PDF text-layer; если на странице его нет (типичный
+    случай для сканированных учебников) — OCR через встроенный Tesseract-bridge
+    PyMuPDF. OCR требует установленного Tesseract с данными для нужного
+    языка. Если Tesseract отсутствует, OCR тихо пропускается и попадают
+    только страницы с text-layer; юзеру предупреждение в stderr.
     """
     pages: list[tuple[int, str]] = []
     ocr_attempted = False
@@ -125,9 +123,9 @@ def _extract_pdf(path: Path, *, ocr_lang: str = "rus+eng") -> list[tuple[int, st
     if ocr_attempted and ocr_success_pages:
         print(f"      [ocr] распознано страниц: {ocr_success_pages}")
     if not pages:
-        # Loud failure beats silent data loss. A scanned PDF with no text
-        # layer + missing Tesseract was producing 0-page books that quietly
-        # vanished from the index for weeks before anyone noticed.
+        # Громкий fail лучше тихой потери данных. Сканированный PDF без
+        # text-layer + отсутствующий Tesseract молча давали 0-page книги,
+        # которые исчезали из индекса неделями, пока кто-то не заметит.
         print(
             f"      [ERROR] {path.name}: 0 страниц извлечено! "
             "Возможно, это сканированный PDF без текстового слоя, "
@@ -144,10 +142,10 @@ def _extract_txt(path: Path) -> list[tuple[int, str]]:
     return [(i, _clean(p)) for i, p in enumerate(parts, start=1) if p.strip()]
 
 
-# Lightweight Markdown cleanup: drop fenced code blocks and strip the most
-# common inline markup so the embedding sees prose, not syntax. Anything
-# more elaborate (reference-style links, tables) is rare in lecture notes;
-# the embedder is robust to leftover punctuation.
+# Лёгкая чистка Markdown: дропаем fenced-code-блоки и срезаем самую
+# частую inline-разметку — embedding видит прозу, не синтаксис. Что-то
+# сложнее (reference-style ссылки, таблицы) в lecture-notes редко;
+# embedder устойчив к остаточной пунктуации.
 _MD_FENCE = re.compile(r"```.*?```", re.DOTALL)
 _MD_INLINE = re.compile(r"(\*\*|__|\*|_|`)(.+?)\1")
 _MD_HEADING = re.compile(r"^#+\s*", re.MULTILINE)
@@ -165,18 +163,18 @@ def _extract_md(path: Path) -> list[tuple[int, str]]:
 
 
 def _extract_docx(path: Path) -> list[tuple[int, str]]:
-    """Read a .docx through python-docx.
+    """Чтение .docx через python-docx.
 
-    Word documents don't have page breaks we can reliably detect (they're
-    rendered by the word processor, not stored); we emit a "page" every ~40
-    paragraphs so retrieval metadata still carries something useful.
+    Word-документы не имеют надёжно детектируемых page-break'ов (их рендерит
+    word-процессор, не сохраняет); эмитим «страницу» каждые ~40 параграфов,
+    чтобы retrieval-метаданные несли хоть что-то полезное.
     """
-    from docx import Document  # deferred import: only needed at ingest time
+    from docx import Document  # отложенный импорт: нужен только на ingest
 
     doc = Document(str(path))
     paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    # Include table cells — lecture handouts frequently put definitions and
-    # comparisons in tables, and losing them silently was a common complaint.
+    # Включаем ячейки таблиц — лекционные handout'ы часто кладут определения
+    # и сравнения в таблицы; молчаливая потеря была частой жалобой.
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -195,9 +193,9 @@ def _extract_docx(path: Path) -> list[tuple[int, str]]:
     return pages
 
 
-# The order matters: PDF first (has real page numbers), then richer
-# text-only formats. When the same stem exists in multiple formats we keep
-# only the richest one (PDF > DOCX > MD > TXT).
+# Порядок важен: PDF первый (реальные page-номера), потом более богатые
+# text-only-форматы. Если одно и то же имя в нескольких форматах — оставляем
+# самый богатый (PDF > DOCX > MD > TXT).
 _SUPPORTED_EXTS = (".pdf", ".docx", ".md", ".txt")
 _EXT_PRIORITY = {ext: i for i, ext in enumerate(_SUPPORTED_EXTS)}
 
@@ -206,9 +204,9 @@ def _gather_books(subject_dir: Path) -> list[Path]:
     files: list[Path] = []
     for ext in _SUPPORTED_EXTS:
         files.extend(sorted(subject_dir.glob(f"*{ext}")))
-    # When the same stem appears under several extensions, keep only the
-    # highest-priority one. Prevents indexing both «chapter.pdf» and a
-    # manually-exported «chapter.txt» that would double-count every chunk.
+    # Если одно и то же stem-имя в нескольких расширениях — оставляем самое
+    # приоритетное. Предотвращает индексацию и «chapter.pdf», и вручную
+    # экспортированного «chapter.txt» (двойной счёт чанков).
     by_stem: dict[str, Path] = {}
     for f in files:
         suffix = f.suffix.lower()
@@ -221,7 +219,7 @@ def _gather_books(subject_dir: Path) -> list[Path]:
 
 
 def _extract_book(path: Path) -> list[tuple[int, str]]:
-    """Dispatch on file extension."""
+    """Диспатч по расширению файла."""
     ext = path.suffix.lower()
     if ext == ".pdf":
         return _extract_pdf(path)
@@ -232,16 +230,16 @@ def _extract_book(path: Path) -> list[tuple[int, str]]:
     return _extract_txt(path)
 
 
-# >30% garbage chunks in a single book is the reject threshold: above that
-# line the LLM spends more time inventing plausible-sounding authors out of
-# OCR'd letter soup than answering from real content. Admins can override
-# with ``--force`` if they know a book is noisy but still useful.
+# >30% мусорных чанков в одной книге — порог отклонения: выше LLM тратит
+# больше времени на придумывание правдоподобных авторов из OCR-letter-soup'а,
+# чем на ответ из реального контента. Админ может override через ``--force``,
+# если уверен, что книга шумная, но всё ещё полезная.
 _GARBAGE_REJECT_RATIO = 0.30
 
 
 @dataclass
 class BookReport:
-    """One entry in the ingest summary shown to the admin."""
+    """Одна запись в ingest-сводке, показанной админу."""
 
     subject_slug: str
     book: str
@@ -283,8 +281,9 @@ def _build_chunks_for_subject(
             overlap=CHUNK_OVERLAP,
         )
 
-        # OCR quality gate: drop garbage chunks per-book; if too many pages
-        # of a book are trashed, refuse the whole book unless --force.
+        # OCR-quality-gate: дропаем мусорные чанки по-книжно; если слишком
+        # много страниц одной книги — отказываемся индексировать всю
+        # книгу (если не --force).
         kept: list[Chunk] = []
         garbage_pages: set[int] = set()
         for ch in chunks:
@@ -322,7 +321,7 @@ def _build_chunks_for_subject(
 
 
 def _print_quality_report(reports: list[BookReport]) -> None:
-    """Admin-facing summary printed at the end of the ingest run."""
+    """Admin-сводка, которая печатается в конце ingest-прогона."""
     if not reports:
         return
     print("\n=== OCR quality report ===")
@@ -403,12 +402,12 @@ def build_index(only_subject: str | None = None, *, force: bool = False) -> None
         )
         sys.exit(1)
 
-    # Encode embeddings
+    # Закодировать embedding'и
     print(f"\nЗагружаю модель эмбеддингов: {EMBEDDING_MODEL}")
     model = SentenceTransformer(EMBEDDING_MODEL)
 
     if only_subject:
-        # partial rebuild: keep chunks from other subjects + their embeddings
+        # partial-rebuild: сохраняем чанки других предметов + их embedding'и
         old_chunks = _load_existing_chunks()
         if EMBEDDINGS_FILE.exists() and old_chunks:
             old_matrix = np.load(EMBEDDINGS_FILE)
@@ -441,7 +440,7 @@ def build_index(only_subject: str | None = None, *, force: bool = False) -> None
             for c in new_chunks
         ]
     else:
-        # full rebuild
+        # полная пересборка
         texts = [c.text for c in new_chunks]
         matrix = _encode(model, texts)
         combined_chunks = [

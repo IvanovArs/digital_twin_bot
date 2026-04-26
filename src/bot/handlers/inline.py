@@ -1,24 +1,4 @@
-"""Inline mode.
-
-Two triggers drive the same ``run_qa_pipeline``:
-
-1. **Button tap (primary, always works).** The inline result carries a
-   placeholder message with one button — "🔍 Получить ответ". Tapping it
-   sends a ``callback_query`` with ``inline_message_id``; we look the
-   question up in an in-process TTL cache (keyed by the button's id) and
-   start the pipeline. This path works regardless of BotFather settings.
-
-2. **``chosen_inline_result`` (optional fast-path).** If the operator enabled
-   ``/setinlinefeedback`` in BotFather, Telegram also pushes
-   ``chosen_inline_result`` when the student picks the result. In that case
-   the pipeline starts automatically without the extra tap — the button is
-   there only as a visual affordance and gets swallowed by the dedupe guard.
-
-Edge case: when the student picks an inline result **inside our own bot's
-PM**, Telegram delivers neither ``inline_message_id`` nor a Message — only
-``chosen_inline_result`` with blank ids. We fall back to sending a fresh
-placeholder message in that chat and editing it by chat_id + message_id.
-"""
+"""Inline mode handlers — button tap and chosen_inline_result both feed run_qa_pipeline."""
 
 from __future__ import annotations
 
@@ -56,30 +36,32 @@ router = Router(name="inline")
 
 CACHE_TIME = 0
 
-# In-process cache that maps a short id (embedded in the button's callback_data)
-# back to the original student question. Needed because Telegram's callback_query
-# only carries the 64-byte callback_data we put there — never the question text.
+# In-process кэш id → исходный текст вопроса. Нужен потому, что
+# Telegram-callback несёт только 64 байта callback_data, не сам вопрос.
 _QUESTION_CACHE: dict[str, tuple[str, float]] = {}
-_CACHE_TTL_S = 600.0  # 10 minutes is plenty for the "think and tap" gap
+_CACHE_TTL_S = 600.0  # 10 минут — комфортный gap «подумал → ткнул»
+# Hard cap: высокий поток inline-запросов (или популярный бот) не должен
+# OOM-нить процесс. TTL GC удаляет stale на каждом чтении; этот cap включается
+# только при потоке быстрее окна 10 мин. Удаляем старейших.
+_CACHE_MAX_ENTRIES = 10_000
 
-# Dedupe guard: once a pipeline run starts for a given inline_message_id, lock
-# it out so a late ``chosen_inline_result`` (or a double-tap) doesn't spawn a
-# second run that would fight the first for edit slots. We use a dict keyed by
-# inline_message_id (value = the rid that owns the run) and rely on
-# ``dict.setdefault`` for an atomic check-and-claim — a plain ``set`` allows
-# the classic TOCTOU window between ``in`` and ``add``.
-# Claims are timestamped so a network split between ``_try_claim`` and
-# ``_release`` can't wedge the entry forever — after ``_RUNNING_TTL_S`` a
-# stale claim is reclaimable. Without this, a subsequent tap on the same
-# inline message silently "already running"-loops until the bot restart.
+# Dedupe guard: как только пайплайн стартовал для inline_message_id, лочим его
+# так, чтобы поздний chosen_inline_result или double-tap не запустили второй
+# run, который бы дрался с первым за edit-слоты. Ключ — inline_message_id,
+# значение — rid владельца. Используем dict.setdefault для атомарного
+# check-and-claim — set дал бы классический TOCTOU между `in` и `add`.
+# Claims с таймштампом, чтобы network split между _try_claim и _release не
+# заклинил запись навечно — после _RUNNING_TTL_S stale-claim переотвоёвывается.
+# Без этого следующий тап по тому же inline-сообщению зацикливался в «already
+# running» до рестарта бота.
 _RUNNING: dict[str, tuple[str, float]] = {}
 _RUNNING_TTL_S = 120.0
 
 
 def _try_claim(inline_message_id: str, rid: str) -> bool:
-    """Atomically reserve ``inline_message_id`` for ``rid``. Returns True iff
-    the caller is the first to claim it (or the previous claim timed out).
-    CPython dict ops are atomic so no explicit lock is needed.
+    """Атомарно резервируем ``inline_message_id`` за ``rid``. True — если
+    мы первые (или предыдущий claim протух). dict-операции CPython
+    атомарны, явный lock не нужен.
     """
     now = time.time()
     current = _RUNNING.get(inline_message_id)
@@ -102,6 +84,11 @@ def _cache_gc() -> None:
 
 def _cache_put(qid: str, question: str) -> None:
     _cache_gc()
+    if len(_QUESTION_CACHE) >= _CACHE_MAX_ENTRIES:
+        # Эвакуируем старейших 10%, чтобы не триммить на каждом insert.
+        oldest = sorted(_QUESTION_CACHE.items(), key=lambda kv: kv[1][1])
+        for k, _ in oldest[: max(1, _CACHE_MAX_ENTRIES // 10)]:
+            _QUESTION_CACHE.pop(k, None)
     _QUESTION_CACHE[qid] = (question, time.time())
 
 
@@ -126,16 +113,16 @@ def _placeholder_message(q: str, lang: str) -> str:
 
 
 def _placeholder_markup(qid: str, lang: str) -> InlineKeyboardMarkup:
-    """Keyboard attached to every inline result.
+    """Клавиатура, которую прикрепляем к каждому inline-результату.
 
-    Two jobs:
-      1. Telegram only returns ``inline_message_id`` for messages with a
-         markup, so we need *some* button for the edit path to be reachable.
-      2. When ``/setinlinefeedback`` is off, this button is the *only* way to
-         start the pipeline — tap it, the callback carries ``inline_message_id``,
-         and the handler below does the work.
+    Две задачи:
+      1. Telegram возвращает ``inline_message_id`` только для сообщений с
+         markup — иначе путь редактирования недоступен.
+      2. Если ``/setinlinefeedback`` выключен в BotFather, эта кнопка —
+         единственный способ запустить пайплайн: тап → callback несёт
+         ``inline_message_id`` → хендлер ниже работает.
 
-    The ``iq:{qid}`` payload is the cache key for the question text.
+    Payload ``iq:{qid}`` — ключ кэша для текста вопроса.
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -157,9 +144,9 @@ async def on_inline_query(query: InlineQuery, lang: str) -> None:
     q = (query.query or "").strip()
 
     if not q:
-        # Empty query → show 4 sample questions the student can tap to send.
-        # Each result is a real placeholder with the iq:{qid} button, so the
-        # tap kicks off the same pipeline as a typed inline query.
+        # Пустой запрос → 4 сэмпл-вопроса, которые студент может ткнуть и
+        # отправить. Каждый — настоящий плейсхолдер с iq:{qid}-кнопкой, тап
+        # запускает тот же пайплайн, что и набранный inline-запрос.
         results: list[InlineQueryResultArticle] = []
         idx = 0 if lang == "ru" else 1
         for ru_q, en_q in texts.ASK_SAMPLES:

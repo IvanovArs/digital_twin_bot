@@ -44,12 +44,16 @@ data/books/*
 data/index/*
 data/models/*
 data/backups/*
+data/downloads/
+data/qa_e2e_*
+data/ingest.log
 !data/books/.gitkeep
 !data/index/.gitkeep
 !data/models/.gitkeep
 !data/backups/.gitkeep
 *.gguf
 *.npy
+*.zip
 
 # --- Hugging Face cache ---
 .cache/

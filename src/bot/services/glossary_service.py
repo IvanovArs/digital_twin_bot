@@ -1,7 +1,7 @@
-"""Glossary sync (YAML → DB) + student-facing queries.
+"""Синк глоссария (YAML → БД) + запросы для студента.
 
-Each subject can have a `data/glossary/<slug>.yaml` file with a list of terms.
-On bot startup we upsert those rows into `glossary_terms`.
+У каждого предмета может быть файл `data/glossary/<slug>.yaml` со списком
+терминов. На старте бота upsert-им их в `glossary_terms`.
 """
 
 from __future__ import annotations
@@ -19,11 +19,11 @@ log = structlog.get_logger(__name__)
 
 
 async def sync_glossary_from_yaml(session: AsyncSession, glossary_dir: Path) -> None:
-    """For every `<slug>.yaml` in ``glossary_dir``, upsert terms into DB.
+    """Для каждого `<slug>.yaml` в ``glossary_dir`` — upsert терминов в БД.
 
-    Silently skips files whose slug has no matching Subject (courses.yaml not
-    yet updated). Does NOT delete terms missing from YAML — admins may add
-    terms out-of-band via bot commands later.
+    Тихо скипает файлы, чьему slug нет matching-Subject (courses.yaml ещё
+    не обновлён). НЕ удаляет термины, которых нет в YAML — админ мог
+    добавить их out-of-band через bot-команды.
     """
     if not glossary_dir.is_dir():
         return
@@ -92,7 +92,7 @@ async def list_terms(
     *,
     subject_slug: str | None = None,
 ) -> list[GlossaryTerm]:
-    """All glossary terms (optionally filtered to one subject), sorted alphabetically."""
+    """Все термины глоссария (опционально по одному предмету), по алфавиту."""
     stmt = select(GlossaryTerm)
     if subject_slug is not None:
         stmt = stmt.join(Subject).where(Subject.slug == subject_slug)
@@ -106,7 +106,7 @@ async def find_term(
     *,
     subject_slug: str | None = None,
 ) -> list[GlossaryTerm]:
-    """Case-insensitive substring match on term name, within a subject if given."""
+    """Case-insensitive substring-поиск по имени термина (внутри subject если задан)."""
     stmt = select(GlossaryTerm).where(GlossaryTerm.term.ilike(f"%{query}%"))
     if subject_slug is not None:
         stmt = stmt.join(Subject).where(Subject.slug == subject_slug)

@@ -29,7 +29,6 @@ async def test_stream_overrides_temperature_and_top_p(monkeypatch) -> None:
     await _stream_answer_to_ui(
         messages=[{"role": "user", "content": "q"}],
         lang="ru",
-        subject_title=None,
         set_status=_noop_status,
         typing_ping=None,
     )

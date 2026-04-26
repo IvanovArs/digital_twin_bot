@@ -56,11 +56,16 @@ def test_brief_mode_en_instruction() -> None:
     assert "No bullets" in user
 
 
-def test_verbose_mode_keeps_structure_prompt() -> None:
+def test_verbose_mode_allows_conditional_bullets() -> None:
+    """Verbose mode no longer mandates a rigid "3-5 bullets" structure (that
+    was forcing the model to invent filler when fragments were thin). It now
+    just *allows* bullets when the fragments themselves enumerate things."""
     msgs = build_messages("что такое X", [_hit()], _subject(), lang="ru", brief=False)
     user = msgs[1]["content"]
-    assert "по структуре" in user
-    assert "3–5" in user
+    assert "Буллеты" in user or "буллеты" in user
+    assert "перечисление" in user
+    # Brief mode's "no bullets" hard ban must NOT leak into verbose.
+    assert "Без буллетов" not in user
 
 
 def test_brief_mode_preserves_grounding_system_prompt() -> None:
@@ -69,7 +74,9 @@ def test_brief_mode_preserves_grounding_system_prompt() -> None:
     msgs = build_messages("q", [_hit()], _subject(), lang="ru", brief=True)
     system = msgs[0]["content"]
     assert "/no_think" in system
-    assert "догадываться" in system or "Не выдумывай" in system
+    # The anti-hallucination block must still ground answers in fragments.
+    assert "ТОЛЬКО на основе фрагментов" in system
+    assert "Не додумывай" in system or "выдумывать" in system
 
 
 # ---------- keyboard ----------

@@ -1,11 +1,11 @@
-"""Tiny aiohttp app that serves liveness + readiness probes on HEALTH_PORT.
+"""Маленькое aiohttp-приложение с liveness/readiness-пробами на HEALTH_PORT.
 
-Runs alongside ``dp.start_polling`` in ``main.py``. Orchestrators
-(docker-compose, k8s) use these endpoints to decide "kill and restart this
-container" (liveness) and "is it OK to send traffic" (readiness).
+Крутится параллельно ``dp.start_polling`` в ``main.py``. Оркестраторы
+(docker-compose, k8s) дёргают эти endpoint'ы, чтобы решать «убить-
+перезапустить контейнер» (liveness) и «можно ли слать трафик» (readiness).
 
-* ``/healthz`` — 200 as long as the process is up and the asyncio loop spins.
-* ``/readyz``  — 200 iff models warmed AND llama-server replies to /health.
+* ``/healthz`` — 200, пока процесс жив и asyncio-loop крутится.
+* ``/readyz``  — 200 если модели прогреты И llama-server отвечает на /health.
 """
 
 from __future__ import annotations
@@ -23,15 +23,15 @@ log = structlog.get_logger(__name__)
 
 
 async def _liveness(_request: web.Request) -> web.Response:
-    # Liveness only proves the loop is alive enough to answer HTTP. Don't
-    # call llama-server / Postgres here — they have their own healthchecks.
+    # Liveness доказывает только то, что loop жив достаточно, чтобы ответить
+    # HTTP. Не дёргаем llama-server / Postgres — у них свои healthcheck'и.
     return web.json_response({"status": "ok"})
 
 
 async def _readiness(_request: web.Request) -> web.Response:
-    """Reports the slow dependencies. Returns 503 until they're up."""
+    """Репортит медленные зависимости. Возвращает 503, пока они не подняты."""
     models_ok = MODELS_READY.is_set()
-    # llm_ping is sync httpx; bounce to a thread so we don't block the loop.
+    # llm_ping — sync httpx; уводим в thread, чтобы не блокировать loop.
     try:
         llm_ok = await asyncio.wait_for(asyncio.to_thread(llm_ping), timeout=2.0)
     except (TimeoutError, Exception):
@@ -50,7 +50,7 @@ def build_app() -> web.Application:
 
 
 async def serve_forever(app: web.Application) -> None:
-    """Run the aiohttp app until the surrounding loop is cancelled."""
+    """Крутить aiohttp-приложение, пока внешний loop не отменён."""
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, settings.HEALTH_LISTEN, settings.HEALTH_PORT)

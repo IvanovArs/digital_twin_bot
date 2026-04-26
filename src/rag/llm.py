@@ -1,9 +1,9 @@
-"""OpenAI-compatible HTTP client to a local llama.cpp server.
+"""OpenAI-совместимый HTTP-клиент к локальному llama.cpp-серверу.
 
-``chat()``        — synchronous one-shot, used for short helpers
-                    (query rewriting, ambiguous-subject hints).
-``chat_stream()`` — async generator over SSE ``data: {…}`` chunks for the
-                    main answer, so the user sees tokens appear progressively.
+``chat()``        — синхронный one-shot для коротких хелперов
+                    (rewrite запроса, подсказки по subject).
+``chat_stream()`` — async-генератор поверх SSE ``data: {…}`` чанков для
+                    основного ответа, чтобы юзер видел токены по мере появления.
 """
 
 from __future__ import annotations
@@ -25,14 +25,14 @@ from tenacity import (
 from src.config import settings
 from src.rag.circuit_breaker import llm_breaker
 
-# Qwen3 reasons inside <think>...</think> before giving the user-facing answer.
-# If it ever slips through (e.g. when /no_think didn't apply), drop it so the
-# student sees the answer, not the chain-of-thought.
+# Qwen3 рассуждает внутри <think>...</think> перед ответом юзеру. Если блок
+# просочился (например, /no_think не сработал) — режем его, чтобы студент
+# видел ответ, а не chain-of-thought.
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
 def strip_think(text: str) -> str:
-    """Remove any ``<think>…</think>`` block and trim whitespace."""
+    """Удалить любой ``<think>…</think>``-блок и обрезать пробелы по краям."""
     cleaned = _THINK_BLOCK.sub("", text).strip()
     return cleaned or text.strip()
 
@@ -46,26 +46,41 @@ def _url(path: str) -> str:
     return f"{settings.LLM_BASE_URL.rstrip('/')}{path}"
 
 
-# ---------- reusable HTTP clients ----------
-# One connection pool per process instead of tearing down httpx on every
-# request. llama.cpp is a single local endpoint — the savings are modest but
-# matter on bursts (retry loops, streaming re-connects).
+# ---------- переиспользуемые HTTP-клиенты ----------
+# Один connection-pool на процесс, чтобы не пересоздавать httpx на каждый
+# запрос. llama.cpp — один локальный endpoint, экономия скромная, но важна
+# на burst'ах (retry-циклы, переподключения стрима).
 
 _SYNC_CLIENT: httpx.Client | None = None
 _ASYNC_CLIENT: httpx.AsyncClient | None = None
+
+# llama-server — один локальный endpoint. Default httpx-pool (10 keepalive /
+# 100 max) для нас сильно избыточен; явные маленькие лимиты держат одно
+# тёплое соединение между burst'ами (retry-циклы, цепочки стрим-reconnect).
+_HTTPX_LIMITS = httpx.Limits(
+    max_keepalive_connections=4,
+    max_connections=8,
+    keepalive_expiry=120.0,
+)
 
 
 def _sync_client(timeout_s: float) -> httpx.Client:
     global _SYNC_CLIENT
     if _SYNC_CLIENT is None:
-        _SYNC_CLIENT = httpx.Client(timeout=httpx.Timeout(timeout_s, connect=5.0))
+        _SYNC_CLIENT = httpx.Client(
+            timeout=httpx.Timeout(timeout_s, connect=5.0),
+            limits=_HTTPX_LIMITS,
+        )
     return _SYNC_CLIENT
 
 
 def _async_client(timeout_s: float) -> httpx.AsyncClient:
     global _ASYNC_CLIENT
     if _ASYNC_CLIENT is None:
-        _ASYNC_CLIENT = httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=5.0))
+        _ASYNC_CLIENT = httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_s, connect=5.0),
+            limits=_HTTPX_LIMITS,
+        )
     return _ASYNC_CLIENT
 
 
@@ -76,17 +91,16 @@ def _close_clients() -> None:
         with contextlib.suppress(Exception):
             _SYNC_CLIENT.close()
         _SYNC_CLIENT = None
-    # AsyncClient needs an event loop to close — skip; main.main() does that
-    # explicitly via aclose_async_client() before its loop exits.
+    # AsyncClient требует живой event-loop для закрытия — пропускаем; main.main()
+    # делает это явно через aclose_async_client() перед выходом из loop'а.
 
 
 async def aclose_async_client() -> None:
-    """Close the singleton ``httpx.AsyncClient`` from inside the running loop.
+    """Закрыть singleton ``httpx.AsyncClient`` изнутри живого loop'а.
 
-    Call this from ``main()``'s shutdown path to avoid the
-    ``Unclosed client session`` warning and the Windows-specific 30-second
-    hang that httpx's background GC exhibits when the loop tears down with
-    pending connections.
+    Зови из shutdown-пути ``main()``, чтобы избежать предупреждения
+    ``Unclosed client session`` и Windows-специфичного 30-секундного hang'а,
+    который background-GC httpx устраивает при teardown'е loop'а с pending-соединениями.
     """
     global _ASYNC_CLIENT
     if _ASYNC_CLIENT is not None:
@@ -96,7 +110,7 @@ async def aclose_async_client() -> None:
             await client.aclose()
 
 
-# ---------- synchronous one-shot ----------
+# ---------- синхронный one-shot ----------
 
 
 def _build_payload(
@@ -110,7 +124,7 @@ def _build_payload(
     max_tokens: int | None,
     stream: bool,
 ) -> dict[str, object]:
-    """Compose the OpenAI-compatible body llama.cpp accepts, with Qwen3 knobs."""
+    """Собрать OpenAI-совместимое тело, которое принимает llama.cpp, с Qwen3-knob'ами."""
     return {
         "model": settings.LLM_MODEL,
         "messages": messages,
@@ -143,11 +157,11 @@ def chat(
     max_tokens: int | None = None,
     timeout: float | None = None,
 ) -> str:
-    """Single-shot chat completion. Retries up to 3× on 5xx / transport errors.
+    """One-shot chat completion. До 3 попыток при 5xx / транспортных ошибках.
 
-    Raises ``CircuitOpenError`` if the breaker is open (llama-server
-    flagged as unhealthy) — the caller should surface a fast failure to
-    the user rather than wait 300 s for a timeout.
+    Бросает ``CircuitOpenError`` если breaker открыт (llama-server помечен как
+    unhealthy) — caller должен показать быстрый отказ пользователю, а не
+    ждать 300с-таймаут.
     """
     llm_breaker.guard()
     payload = _build_payload(
@@ -173,7 +187,7 @@ def chat(
     return strip_think(raw)
 
 
-# ---------- async streaming ----------
+# ---------- async-стриминг ----------
 
 
 async def chat_stream(
@@ -187,12 +201,11 @@ async def chat_stream(
     max_tokens: int | None = None,
     timeout: float | None = None,
 ) -> AsyncIterator[str]:
-    """Yield ``delta.content`` strings as llama-server streams them.
+    """Yield-ит строки ``delta.content`` по мере стриминга от llama-server'а.
 
-    The caller is responsible for accumulating chunks and throttling the UI
-    updates (Telegram allows ~1 edit/sec per message). ``<think>`` blocks are
-    NOT stripped here — they're rare with ``/no_think`` in the prompt, but
-    if they do appear the caller should strip them from the accumulated text.
+    Caller сам аккумулирует чанки и троттлит UI-edit'ы (Telegram = ~1 edit/sec
+    на сообщение). ``<think>``-блоки здесь НЕ срезаются — с ``/no_think`` в
+    промпте они редки, но если попали — caller должен срезать на накопленном.
     """
     llm_breaker.guard()
     payload = _build_payload(
@@ -206,10 +219,10 @@ async def chat_stream(
         stream=True,
     )
     client = _async_client(timeout or settings.LLM_TIMEOUT_SECONDS)
-    # The breaker fires on transport errors (no connection) and on
-    # non-2xx responses. We can't catch mid-stream cancellations as
-    # breaker signal without false positives, so only the handshake
-    # matters for tripping — once the stream is flowing, we trust it.
+    # Breaker срабатывает на транспортных ошибках (нет соединения) и не-2xx
+    # ответах. Mid-stream-отмены не ловим как сигнал для breaker'а (слишком
+    # много false-positive'ов), так что важен только handshake — раз стрим
+    # пошёл, доверяем ему.
     try:
         async with client.stream(
             "POST",
@@ -243,7 +256,7 @@ async def chat_stream(
 
 
 def ping() -> bool:
-    """Health-check llama-server's /health (at root, not /v1)."""
+    """Health-check на /health у llama-server (он в root'е, не /v1)."""
     base = settings.LLM_BASE_URL.rstrip("/")
     root = base[:-3] if base.endswith("/v1") else base
     try:

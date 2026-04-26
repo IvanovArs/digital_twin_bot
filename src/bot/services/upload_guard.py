@@ -1,30 +1,29 @@
-"""Validation helpers for teacher-uploaded files.
+"""Валидация преподавательских аплоадов.
 
-Two independent checks:
+Две независимые проверки:
 
-* **Size cap** — rejects files above a sensible limit *before* we pay
-  the cost of downloading + hitting disk. Telegram bots can technically
-  receive up to 2 GB payloads via ``bot.download``; without a cap here
-  an admin could fill the server with a single upload.
+* **Лимит размера** — отбивает файлы выше разумного порога *до* download'а
+  и записи на диск. Telegram-bot технически принимает до 2 ГБ через
+  ``bot.download``; без лимита один upload забил бы сервер.
 
-* **Magic-byte sniffing** — the file extension is client-controlled, so a
-  malicious or mis-labeled file can be renamed to ``.pdf`` and slip
-  through the extension whitelist. We verify the first few bytes match
-  what the extension claims. Plaintext formats (``.txt``, ``.md``,
-  ``.csv``, ``.yaml``) get a utf-8-decodability check instead.
+* **Magic-byte sniffing** — расширение файла контролируется клиентом,
+  вредоносный/мис-лейбленный файл могут переименовать в ``.pdf`` и
+  проскочить allowlist по расширению. Проверяем, что первые байты
+  соответствуют заявленному типу. Plain-text форматы (``.txt``, ``.md``,
+  ``.csv``, ``.yaml``) проверяем на utf-8-декодируемость.
 """
 
 from __future__ import annotations
 
-# Generous cap: covers the biggest textbook PDFs we've seen (~30 MB
-# scanned with images) but stops anyone dumping a disk image.
+# Щедрый лимит: покрывает самые большие учебники (~30 МБ scan'ы с
+# картинками), но не даёт лить disk-image'ы.
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 def check_size(size: int | None) -> str | None:
-    """Return None if the size is acceptable, else a user-facing error."""
+    """None — если размер ок, иначе человекочитаемая ошибка."""
     if size is None:
-        return None  # unknown size — let the caller decide
+        return None  # размер неизвестен — caller решает
     if size <= 0:
         return "Пустой файл."
     if size > MAX_UPLOAD_BYTES:
@@ -40,14 +39,14 @@ def _is_pdf(head: bytes) -> bool:
 
 
 def _is_docx(head: bytes) -> bool:
-    # DOCX is a ZIP archive. PK\x03\x04 is the standard local-file header;
-    # PK\x05\x06 / PK\x07\x08 appear on edge-cases (empty archive, spanned).
+    # DOCX — это ZIP-архив. PK\x03\x04 — стандартный local-file header;
+    # PK\x05\x06 / PK\x07\x08 встречаются на edge-cases (пустой/spanned).
     return head.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"))
 
 
 def _is_utf8_text(payload: bytes) -> bool:
-    # Short probe is enough — if the first 4 KB decode, the rest will too
-    # (or we'll hit a bad byte downstream and emit a soft warning).
+    # Короткой проверки достаточно — если первые 4 КБ декодируются,
+    # остальное тоже декодируется (или прилетит bad-byte ниже — будет warning).
     try:
         payload[:4096].decode("utf-8-sig")
         return True
@@ -56,12 +55,12 @@ def _is_utf8_text(payload: bytes) -> bool:
 
 
 def check_magic(filename: str, payload: bytes) -> str | None:
-    """Verify the file content matches its extension.
+    """Проверить, что содержимое файла соответствует расширению.
 
-    Returns None if the file passes, a user-facing error string otherwise.
-    The error mentions the claimed extension, not the content type — we
-    don't want to leak back that we know a PDF is actually a ZIP (that's a
-    dual-use information disclosure in other contexts).
+    None — если ок, иначе человекочитаемая ошибка. Текст ошибки упоминает
+    заявленное расширение, не реальный content-type — не сливаем наружу,
+    что мы знаем, что .pdf на самом деле ZIP (в других контекстах это
+    dual-use information disclosure).
     """
     if not payload:
         return "Пустой файл."
@@ -79,6 +78,6 @@ def check_magic(filename: str, payload: bytes) -> str | None:
         if not _is_utf8_text(payload):
             return "Текстовый файл не в UTF-8."
         return None
-    # Unknown extensions should have been rejected upstream by the
-    # handler's extension allowlist; if we land here, fail closed.
+    # Неизвестные расширения должен отбить allowlist в handler'е выше;
+    # если попали сюда — отказываем по принципу fail-closed.
     return "Неподдерживаемое расширение."

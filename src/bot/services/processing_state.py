@@ -1,14 +1,14 @@
-"""In-process map ``{request_id: current_status_text}`` shared between the PM
-and inline flows so the «👀 Что сейчас делается?» button can answer with a
-real, up-to-the-second stage label.
+"""In-process-карта ``{request_id: current_status_text}``, общая для PM и
+inline-флоу — кнопка «👀 Что сейчас делается?» отвечает реальным актуальным
+лейблом стадии.
 
-Each ``run_qa_pipeline`` invocation gets a fresh ``rid``; the wrapper around
-``set_status`` writes here every time Telegram is edited. ``clear(rid)`` is
-called on the terminal ``set_final`` so a late tap against a cached client
-button falls through the TTL gate and surfaces the friendly fallback alert.
+Каждый ``run_qa_pipeline`` получает свежий ``rid``; обёртка над
+``set_status`` пишет сюда на каждом edit'е Telegram. ``clear(rid)``
+вызывается в финальном ``set_final`` — поздний тап по кэшированной
+client-кнопке проваливается через TTL-гейт и показывает дружелюбный alert.
 
-TTL is short on purpose — once an answer is delivered the rid is meaningless,
-and we don't want to leak memory from abandoned dialogs.
+TTL короткий специально: после доставки ответа rid бессмысленен, и мы не
+хотим течь памятью от заброшенных диалогов.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def _gc() -> None:
 
 
 def new_rid() -> str:
-    """12-hex chars → "wh:<rid>" stays well under the 64-byte callback_data cap."""
+    """12 hex-символов → "wh:<rid>" хорошо помещается в 64-байтный лимит callback_data."""
     return uuid.uuid4().hex[:12]
 
 

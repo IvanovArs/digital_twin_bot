@@ -1,4 +1,4 @@
-"""Attach structured logging context to each update."""
+"""Структурный logging-context для каждого update'а."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ log = structlog.get_logger(__name__)
 
 
 def _describe(event: TelegramObject) -> dict[str, Any]:
-    """Compact dict describing what kind of update just arrived."""
+    """Компактный dict с описанием прилетевшего update'а."""
     info: dict[str, Any] = {"event_type": type(event).__name__}
     if isinstance(event, Update):
         inner = (

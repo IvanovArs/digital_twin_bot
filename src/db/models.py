@@ -1,7 +1,7 @@
-"""SQLAlchemy 2.0 declarative models.
+"""SQLAlchemy 2.0 declarative-модели.
 
-Postgres-first. No legacy tables from the old SQL dump — this is a fresh schema
-aligned with the multi-subject RAG architecture.
+Postgres-first. Никаких legacy-таблиц из старого SQL-дампа — это свежая схема,
+выровненная под multi-subject RAG-архитектуру.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, mapped_co
 
 
 class Base(MappedAsDataclass, DeclarativeBase):
-    """Common declarative base."""
+    """Общий declarative base."""
 
 
 class UserRole(str, enum.Enum):
@@ -37,12 +37,12 @@ class UserRole(str, enum.Enum):
 
 
 class AnswerMode(str, enum.Enum):
-    """Per-user preference for how much prose the bot wraps around an answer.
+    """Пользовательская настройка — сколько обвязки бот пишет вокруг ответа.
 
-    ``verbose`` — default; follow-up buttons, header with the question,
-    «Источники» block, rich structure.
-    ``brief`` — just the answer body + one-line sources, no follow-up row,
-    no feedback chrome. For users who want a textbook lookup, not a chat.
+    ``verbose`` — дефолт; follow-up кнопки, header с вопросом,
+    «Источники»-блок, развёрнутая структура.
+    ``brief`` — только тело ответа + источники одной строкой, без follow-up
+    и feedback-обвески. Для тех, кому нужен lookup, а не чат.
     """
 
     verbose = "verbose"
@@ -72,10 +72,13 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(default_factory=_utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(default_factory=_utcnow)
 
+    # Грузим только при явном selectinload(User.dialogs) — selectin-on-fetch
+    # превращал каждый session_mw lookup юзера в SELECT всех его диалогов,
+    # на power-user'е с тысячами строк это +200 мс на каждый Telegram-update.
     dialogs: Mapped[list[Dialog]] = relationship(
         back_populates="user",
         init=False,
-        lazy="selectin",
+        lazy="raise",
     )
 
 
@@ -136,6 +139,15 @@ class Dialog(Base):
         Index("ix_dialogs_user_created", "user_id", "created_at"),
         Index("ix_dialogs_subject_created", "subject_id", "created_at"),
         Index("ix_dialogs_user_favourite", "user_id", "is_favourite"),
+        # Покрывает /favourites + ORDER BY created_at DESC одним indeх scan'ом.
+        Index(
+            "ix_dialogs_user_fav_created",
+            "user_id",
+            "is_favourite",
+            "created_at",
+        ),
+        # Для admin /stats_24h (WHERE created_at >= cutoff).
+        Index("ix_dialogs_created_at", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, init=False, autoincrement=True)
@@ -165,7 +177,11 @@ class Dialog(Base):
 
 class Feedback(Base):
     __tablename__ = "feedback"
-    __table_args__ = (CheckConstraint("rating BETWEEN 1 AND 5", name="ck_feedback_rating_range"),)
+    __table_args__ = (
+        CheckConstraint("rating BETWEEN 1 AND 5", name="ck_feedback_rating_range"),
+        # Очередь /teacher_review — ORDER BY created_at DESC.
+        Index("ix_feedback_created", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, init=False, autoincrement=True)
     dialog_id: Mapped[int] = mapped_column(
@@ -195,13 +211,13 @@ class GlossaryTerm(Base):
 
 
 class FAQEntry(Base):
-    """Teacher-curated answer served *before* RAG when the question matches.
+    """Преподавательский ответ, отдаётся *до* RAG, когда вопрос совпадает.
 
-    Populated when a teacher reviews a 👎-rated dialog via ``/teacher_fix``
-    and writes a corrected answer. Subsequent students asking the same
-    normalised question get the teacher's answer verbatim — the LLM isn't
-    involved, so latency drops to a single DB lookup and the teacher's
-    phrasing is preserved. ``subject_id`` may be NULL for a global FAQ.
+    Заполняется, когда преподаватель ревьюит 👎-диалог через ``/teacher_fix``
+    и пишет корректный ответ. Следующие студенты с тем же нормализованным
+    вопросом получают ответ препода буквально — LLM не зовётся, latency
+    падает до одного DB-lookup'а, формулировка препода сохраняется.
+    ``subject_id`` может быть NULL для глобального FAQ.
     """
 
     __tablename__ = "faq_entries"

@@ -1,13 +1,13 @@
-"""Subject router: given top-k hits from the unified index, decide which
-subject the student's question likely belongs to.
+"""Subject-router: по top-k хитам из unified-индекса решает, к какому предмету
+вероятнее всего относится вопрос студента.
 
-Strategy: score-weighted voting.
-  score_sum[s] = sum of hit.score for hit in hits if hit.subject_slug == s
-  winner     = argmax(score_sum)
-  confidence = (top1 - top2) / top1   (how dominant the leader is)
+Стратегия: голосование, взвешенное по score.
+  score_sum[s] = сумма hit.score для hit в hits, где hit.subject_slug == s
+  winner       = argmax(score_sum)
+  confidence   = (top1 - top2) / top1   (насколько лидер доминирует)
 
-The caller decides whether to trust the winner or ask the user to
-disambiguate, based on `margin < ROUTER_CONFIDENCE_MARGIN`.
+Caller решает, доверять ли победителю или попросить юзера disambiguate,
+по `margin < ROUTER_CONFIDENCE_MARGIN`.
 """
 
 from __future__ import annotations
@@ -22,13 +22,13 @@ from src.rag.retriever import Hit
 @dataclass(frozen=True)
 class RouteResult:
     subject_slug: str | None
-    """None iff there were no hits."""
+    """None если хитов не было."""
     margin: float
-    """Relative gap between top-1 and top-2 subject scores (0..1)."""
+    """Относительный разрыв между top-1 и top-2 score'ами предметов (0..1)."""
     ambiguous: bool
-    """True when margin < ROUTER_CONFIDENCE_MARGIN and ≥ 2 subjects competed."""
+    """True если margin < ROUTER_CONFIDENCE_MARGIN и конкурировали ≥ 2 предмета."""
     ranked: list[tuple[str, float]]
-    """(subject_slug, score_sum) sorted by score_sum desc."""
+    """(subject_slug, score_sum), отсортирован по убыванию score_sum."""
 
 
 def detect_subject(
@@ -41,7 +41,7 @@ def detect_subject(
 
     totals: dict[str, float] = defaultdict(float)
     for h in hits:
-        # clamp negative cosine to 0 so outliers don't tilt the vote the wrong way
+        # отрицательный cosine клипуем в 0 — outlier'ы не должны перекосить голосование
         totals[h.subject_slug] += max(0.0, h.score)
 
     ranked = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)

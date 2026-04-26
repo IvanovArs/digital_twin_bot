@@ -1,7 +1,7 @@
-"""Centralized structlog + stdlib logging setup.
+"""Централизованная настройка structlog + stdlib-logging.
 
-Call ``configure_logging()`` once at process startup.
-JSON output is enabled by LOG_JSON=true; otherwise human-friendly console.
+Зови ``configure_logging()`` один раз на старте процесса.
+JSON-вывод включается через LOG_JSON=true; иначе — human-friendly console.
 """
 
 from __future__ import annotations
@@ -17,10 +17,10 @@ from src.config import settings
 
 
 def _force_utf8_stdio() -> None:
-    """Windows console defaults to cp1251 in RU locales — emoji and
-    Cyrillic in log lines (e.g. «📊», «стейкхолдер») crash the whole
-    process with UnicodeEncodeError before any log filter runs. Force
-    utf-8 on stdout/stderr once at startup. No-op on POSIX."""
+    """Windows-консоль в RU-локалях по умолчанию cp1251 — emoji и кириллица
+    в log-строках («📊», «стейкхолдер») валят весь процесс UnicodeEncodeError'ом
+    до того, как сработает фильтр логов. Форсим UTF-8 на stdout/stderr один
+    раз на старте. На POSIX — no-op."""
     if sys.platform != "win32":
         return
     for stream in (sys.stdout, sys.stderr):
@@ -32,9 +32,9 @@ def configure_logging() -> None:
     _force_utf8_stdio()
     level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
 
-    # ``format_exc_info`` flattens exc_info → a string; good for JSON output,
-    # but ConsoleRenderer does its own (prettier) exception formatting and
-    # warns if exceptions are pre-flattened. So we only add it in JSON mode.
+    # ``format_exc_info`` плющит exc_info в строку — хорошо для JSON-вывода,
+    # но ConsoleRenderer делает своё (более красивое) форматирование исключений
+    # и warning'ует, если они уже flattened. Поэтому добавляем только в JSON-mode.
     shared_processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
@@ -56,7 +56,7 @@ def configure_logging() -> None:
         cache_logger_on_first_use=True,
     )
 
-    # Also route stdlib loggers (aiogram, sqlalchemy, httpx) to the same stream
+    # Также роутим stdlib-логгеры (aiogram, sqlalchemy, httpx) в тот же stream
     logging.basicConfig(
         level=level,
         stream=sys.stdout,

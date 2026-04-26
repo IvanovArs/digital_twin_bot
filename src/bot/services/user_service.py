@@ -1,4 +1,4 @@
-"""User bootstrap/update: map Telegram user → row in `users`."""
+"""User bootstrap/update: маппит Telegram-юзера → строку в таблице `users`."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from src.db.models import User, UserRole
 
 
 async def get_or_create_user(session: AsyncSession, tg_user: TgUser) -> User:
-    """Return a persistent User for the given Telegram user, creating if missing.
+    """Вернуть сохранённого User'а для данного Telegram-юзера, создав при необходимости.
 
-    Users whose telegram_id is listed in ADMIN_TELEGRAM_IDS are auto-promoted
-    to the 'admin' role on first contact.
+    Пользователи, чей telegram_id перечислен в ADMIN_TELEGRAM_IDS, при первом
+    контакте автоматически промоутятся в роль 'admin'.
     """
     stmt = select(User).where(User.telegram_id == tg_user.id)
     user = (await session.execute(stmt)).scalar_one_or_none()
@@ -30,7 +30,7 @@ async def get_or_create_user(session: AsyncSession, tg_user: TgUser) -> User:
         session.add(user)
         await session.flush()
     else:
-        # keep name / role fresh in case config changed
+        # обновляем имя/роль на случай изменений в конфиге
         changed = False
         if user.full_name != tg_user.full_name:
             user.full_name = tg_user.full_name

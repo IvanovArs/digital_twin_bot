@@ -59,11 +59,11 @@ class Settings(BaseSettings):
     LLM_TOP_K: int = 20
     LLM_MIN_P: float = 0.0
     LLM_REPEAT_PENALTY: float = 1.05
-    # 320 tokens fits the mandated "definition + 1-2 sentences + 3-5 bullets +
-    # source line" structure with a small safety margin. Going lower truncates
-    # the bullet list; going higher mostly bloats the answer and costs another
-    # ~5 s of decode. Raise via env if you need longer explanations.
-    LLM_MAX_TOKENS: int = 320
+    # 220 tokens fits a 2–5 short-sentence answer (the new free-form prompt;
+    # the old "3–5 bullets" mandate is gone). Tighter cap = faster decode on
+    # CPU (~2–3 s saved at 10 tok/s) AND less room for the model to invent
+    # filler when the fragments are thin. Raise via env if you need longer.
+    LLM_MAX_TOKENS: int = 220
 
     # --- Embeddings ---
     EMBEDDING_MODEL: str = "BAAI/bge-m3"

@@ -1,9 +1,9 @@
-"""DuckDuckGo text search — fallback when the textbook has no answer.
+"""DuckDuckGo text-search — fallback, когда в учебнике ответа нет.
 
-No API key, no account. One HTTP round-trip per call; we keep the top-``k``
-results with (title, url, snippet) and feed them to the local LLM for
-synthesis. The student's question leaves the box only after retrieval + LLM
-rewrite both failed, and only to DuckDuckGo.
+Без API-key и аккаунта. Один HTTP round-trip на вызов; держим top-``k``
+результатов (title, url, snippet) и кормим их локальной LLM для синтеза.
+Вопрос студента покидает машину только после провала retrieval + LLM-
+rewrite, и только в DuckDuckGo.
 """
 
 from __future__ import annotations
@@ -18,15 +18,15 @@ from duckduckgo_search.exceptions import RatelimitException
 
 log = structlog.get_logger(__name__)
 
-# DDG's JSON endpoint rate-limits aggressively. The HTML backend scrapes the
-# SERP page directly — much more tolerant of frequent queries.
+# JSON-endpoint DDG агрессивно rate-limit'ит. HTML-backend скрейпит SERP
+# напрямую — гораздо терпимее к частым запросам.
 _BACKENDS = ("html", "lite", "api")
 _MAX_ATTEMPTS = 3
 
-# SEO spam / aggregator hosts that frequently appear high in DDG results but
-# add no value (or actively misinform). We drop them after the search returns
-# so the LLM never sees them as "authoritative". Keep this list short — false
-# positives here silently hide good results from the student.
+# SEO-спам / агрегаторы, часто всплывающие в DDG-результатах высоко, но
+# не несущие ценности (или активно дезинформирующие). Дропаем после
+# search'а — LLM не видит их как «авторитет». Список держим коротким —
+# false-positive'ы тут молча скрывают хорошие результаты от студента.
 _HOST_BLOCKLIST = frozenset(
     {
         "ru-stat.com",
@@ -57,10 +57,10 @@ class WebHit:
 
     @property
     def host(self) -> str:
-        """Bare hostname for status UI: ``ru.wikipedia.org`` from a full URL.
+        """Голый hostname для status-UI: «ru.wikipedia.org» из полного URL.
 
-        Falls back to a slice of the URL if parsing fails — we never want the
-        status line to render an empty string.
+        Fallback на срез URL если parsing упал — пустая строка в status'е
+        нам не нужна никогда.
         """
         try:
             h = (urlparse(self.url).hostname or "").lower()
@@ -70,7 +70,11 @@ class WebHit:
 
 
 def _try_backend(query: str, k: int, region: str, backend: str) -> list[dict[str, str]]:
-    with DDGS() as ddgs:
+    # 8 с на backend — DuckDuckGo не должен висеть бесконечно. Без этого
+    # застрявший DDG-endpoint блокирует asyncio.to_thread-worker до OS
+    # socket-таймаута (часто минуты), юзер сидит на «🌐 ищу в интернете…»
+    # with no progress, no recovery.
+    with DDGS(timeout=8) as ddgs:
         return list(
             ddgs.text(
                 query,
@@ -83,9 +87,9 @@ def _try_backend(query: str, k: int, region: str, backend: str) -> list[dict[str
 
 
 def search_web(query: str, k: int = 5, *, lang: str = "ru") -> list[WebHit]:
-    """Return up to ``k`` DDG results; tries several backends + small backoff.
+    """До ``k`` DDG-результатов; пробует несколько backend'ов + малый backoff.
 
-    Returns ``[]`` on total failure (rate-limit on every backend, network, etc.).
+    Возвращает ``[]`` при полном fail'е (rate-limit на каждом backend, сеть и т.п.).
     """
     region = "ru-ru" if lang == "ru" else "wt-wt"
     raw: list[dict[str, str]] = []
@@ -105,7 +109,7 @@ def search_web(query: str, k: int = 5, *, lang: str = "ru") -> list[WebHit]:
                 continue
         if raw:
             break
-        time.sleep(1.5 * (attempt + 1))  # backoff 1.5s, 3s
+        time.sleep(1.5 * (attempt + 1))  # backoff 1.5с, 3с
 
     if not raw:
         log.error("ddg_all_backends_failed", query=query)
@@ -117,6 +121,14 @@ def search_web(query: str, k: int = 5, *, lang: str = "ru") -> list[WebHit]:
         url = str(r.get("href") or r.get("url") or "").strip()
         snippet = str(r.get("body") or r.get("snippet") or "").strip()
         if not title or not url:
+            continue
+        # Пропускаем почти-пустые сниппеты — DDG иногда возвращает только title.
+        # Без текста LLM «доздаёт» контент из parametric-memory и цитирует
+        # источник, как будто тот это сказал. ≥60 chars + ≥8 word-токенов —
+        # эмпирический порог: одно-предложенные определения проходят, чистый
+        # title-шум отсекается.
+        if len(snippet) < 60 or len(snippet.split()) < 8 or snippet.lower() in title.lower():
+            log.info("ddg_drop_thin_snippet", host=urlparse(url).hostname or "", chars=len(snippet))
             continue
         hit = WebHit(title=title, url=url, snippet=snippet)
         if _host_blocked(hit.host):

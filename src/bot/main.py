@@ -1,12 +1,12 @@
-"""Bot entrypoint. Run with: python -m src.bot.main
+"""Точка входа бота. Запуск: python -m src.bot.main
 
-Boot sequence:
-  1. Load Settings + configure logging
-  2. Create aiogram Bot + Dispatcher
-  3. Attach middlewares (logging → access → lang → session)
-  4. Register routers (common, admin, student, inline, errors)
-  5. Run startup tasks (sync courses.yaml → subjects, glossary, bot commands)
-  6. Start polling (dev) or webhook (prod)
+Последовательность загрузки:
+  1. Подгружаем Settings + настраиваем логирование
+  2. Создаём aiogram Bot + Dispatcher
+  3. Цепляем middlewares (logging → access → lang → session)
+  4. Регистрируем routers (common, admin, student, inline, errors)
+  5. Запускаем startup-задачи (sync courses.yaml → subjects, глоссарий, bot-commands)
+  6. Старт polling (dev) или webhook (prod)
 """
 
 from __future__ import annotations
@@ -49,14 +49,13 @@ ALEMBIC_INI = ROOT / "alembic.ini"
 
 
 def _run_migrations() -> None:
-    """Apply all pending alembic migrations at bot startup.
+    """Применить все pending alembic-миграции на старте бота.
 
-    We let the exception propagate on failure so ``_on_startup`` aborts
-    before polling begins — a half-applied schema is worse than a
-    refused boot. Alembic itself wraps each revision in a transaction on
-    backends that support DDL-in-transaction (Postgres, SQLite), so a
-    raise here means the DB is either fully at the new revision or
-    fully at the previous one, never in between.
+    Исключение пробрасываем — ``_on_startup`` остановится до polling'а:
+    наполовину применённая схема хуже, чем отказ загрузиться. Alembic
+    оборачивает каждую ревизию в транзакцию на бэкендах с
+    DDL-in-transaction (Postgres, SQLite), так что raise = БД либо
+    полностью на новой ревизии, либо полностью на предыдущей.
     """
     cfg = AlembicConfig(str(ALEMBIC_INI))
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
@@ -100,8 +99,8 @@ BOT_COMMANDS_EN = [
     BotCommand(command="help", description="Help"),
 ]
 
-# Telegram caps: description ≤ 512 chars, short ≤ 120. The long version shows
-# in the bot's profile page; the short version shows in chat-list search.
+# Telegram-лимиты: description ≤ 512 chars, short ≤ 120. Длинная версия
+# показывается на странице профиля бота; короткая — в поиске чатов.
 BOT_DESCRIPTION_RU = (
     "Цифровой двойник преподавателя. Отвечает на вопросы студентов "
     "по учебникам курса: семантический поиск bge-m3 + локальный Qwen3, "
@@ -117,14 +116,14 @@ BOT_SHORT_EN = "I help students find answers in course textbooks."
 
 
 async def _warm_up_models() -> None:
-    """Load bge-m3 and read the unified index off disk in a worker thread so
-    the first student question doesn't pay cold-start costs inside its
-    handler (~500 MB / 5–10 s for bge-m3, ~50–200 ms for the index mmap).
+    """Загрузить bge-m3 и прочитать unified-индекс с диска в worker-thread'е,
+    чтобы первый студенческий вопрос не платил cold-start внутри своего
+    handler'а (~500 МБ / 5–10 с для bge-m3, ~50–200 мс для index mmap).
     """
     import time
 
-    # Imported lazily so bot startup doesn't pull in sentence-transformers
-    # before logging is configured.
+    # Лениво импортируем, чтобы старт бота не тянул sentence-transformers
+    # до того, как настроено логирование.
     from src.rag.hybrid import _bm25
     from src.rag.reranker import _model as _reranker_model
     from src.rag.retriever import _load_index
@@ -140,10 +139,10 @@ async def _warm_up_models() -> None:
             return
         log.info("model_ready", model=name, latency_ms=int((time.monotonic() - t0) * 1000))
 
-    # Load everything the retrieval hot-path needs in parallel: embedder,
-    # dense index, BM25 tokenised corpus, cross-encoder reranker. Skipping
-    # any of these left the first student question paying the cold-start
-    # cost in its own handler (up to ~5 s extra on the reranker alone).
+    # Грузим всё, что нужно горячему retrieval-пути, параллельно: embedder,
+    # dense-индекс, BM25-токенизированный корпус, cross-encoder реранкер.
+    # Если что-то пропустить — первый вопрос платит cold-start в своём
+    # handler'е (только реранкер — до ~5 с лишних).
     await asyncio.gather(
         _warm("bge-m3", _embedder_model),
         _warm("rag-index", _load_index),
@@ -154,22 +153,22 @@ async def _warm_up_models() -> None:
 
 
 async def _warm_up_models_safe() -> None:
-    """Wrapper that guarantees ``MODELS_READY`` flips even on crash, so
-    student questions never hang for the full 120 s warm-up timeout.
+    """Обёртка, гарантирующая, что ``MODELS_READY`` флипнется даже на crash'е —
+    студенческие вопросы не зависнут на полные 120 с warm-up-таймаута.
     """
     try:
         await _warm_up_models()
     except Exception:
         log.exception("warmup_task_crashed")
-        # Unblock waiting questions; they'll fail fast on retrieval and
-        # surface a real error instead of silently blocking the placeholder.
+        # Разблокируем ждущих; они быстро упадут на retrieval и покажут
+        # реальную ошибку, а не молча будут блокировать плейсхолдер.
         MODELS_READY.set()
 
 
 async def _on_startup(bot: Bot) -> None:
-    # Migrations are auto-run on every boot. If they fail (broken migration,
-    # FS permissions), exit clean with a loud log instead of crash-looping
-    # under docker --restart=always.
+    # Миграции автоматом на каждом старте. Если упали (битая миграция,
+    # FS-permissions), выходим чисто с громким логом — не cycle'имся
+    # под docker --restart=always.
     try:
         await asyncio.to_thread(_run_migrations)
     except Exception as exc:
@@ -182,7 +181,7 @@ async def _on_startup(bot: Bot) -> None:
         await sync_glossary_from_yaml(session, GLOSSARY_DIR)
         await session.commit()
 
-    # Per-language command menu. Clients fall back to default for other locales.
+    # Меню команд по языкам. Клиенты с другими локалями падают в default.
     await bot.set_my_commands(
         commands=BOT_COMMANDS_RU,
         scope=BotCommandScopeDefault(),
@@ -195,8 +194,8 @@ async def _on_startup(bot: Bot) -> None:
     )
     await bot.set_my_commands(commands=BOT_COMMANDS_EN, scope=BotCommandScopeDefault())
 
-    # Per-language bot profile description. Idempotent — Telegram returns
-    # 400 "description is not modified" if unchanged, which we swallow.
+    # Описание бота по языкам. Идемпотентно — Telegram возвращает
+    # 400 «description is not modified» если не изменилось, мы это глотаем.
     for lang_code, long_txt, short_txt in (
         ("ru", BOT_DESCRIPTION_RU, BOT_SHORT_RU),
         ("en", BOT_DESCRIPTION_EN, BOT_SHORT_EN),
@@ -209,8 +208,8 @@ async def _on_startup(bot: Bot) -> None:
         except Exception:
             log.warning("set_bot_description_failed", lang=lang_code, exc_info=True)
 
-    # Warm bge-m3 + index in the background — don't block polling startup.
-    # The _safe wrapper guarantees MODELS_READY flips even on crash.
+    # Прогрев bge-m3 + индекса в фоне — не блокирует старт polling'а.
+    # Обёртка _safe гарантирует, что MODELS_READY флипнется даже на crash'е.
     asyncio.create_task(_warm_up_models_safe(), name="warmup")  # noqa: RUF006
 
     log.info("startup_complete", subjects=catalog.slugs())
@@ -223,12 +222,20 @@ async def main() -> None:
     if not token:
         raise RuntimeError("BOT_TOKEN is empty. Put a real token into .env (see .env.example).")
 
-    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(
+        token=token,
+        default=DefaultBotProperties(
+            parse_mode=ParseMode.HTML,
+            # Web-fallback answers carry source links — without this Telegram
+            # blows them up into a card under every reply.
+            link_preview_is_disabled=True,
+        ),
+    )
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Middlewares (outer, order matters: logging → access → throttle → lang → session)
-    # Throttle sits AFTER access (allowlist gate runs first) but BEFORE
-    # session/lang so a burst-dropped update doesn't even open a DB session.
+    # Middlewares (outer, порядок важен: logging → access → throttle → lang → session)
+    # Throttle ПОСЛЕ access (allowlist-gate первым), но ДО session/lang —
+    # burst-дропнутый update не должен даже открывать DB-сессию.
     dp.update.outer_middleware(LoggingMiddleware())
     dp.update.outer_middleware(AccessMiddleware(settings.allowed_ids))
     dp.update.outer_middleware(ThrottleMiddleware())
@@ -257,7 +264,7 @@ async def main() -> None:
         )
     log.info("bot_starting_polling", allowed_updates=allowed)
 
-    # Polling alongside the healthz/readyz HTTP — both run forever.
+    # Polling параллельно с healthz/readyz HTTP — оба крутятся вечно.
     from src.bot import web as bot_web
 
     app = bot_web.build_app()
@@ -267,11 +274,14 @@ async def main() -> None:
             dp.start_polling(bot, allowed_updates=allowed),
         )
     finally:
-        # Close the singleton httpx.AsyncClient inside the still-alive loop;
-        # otherwise asyncio emits "Unclosed client session" warnings and on
-        # Windows the process can hang for ~30 s on the dangling pool.
+        # На SIGTERM aiogram сразу отменяет start_polling; in-flight
+        # qa_pipeline-таски убились бы mid-stream, оставив flushed-но-
+        # не-committed Dialog-строки. Сначала дренируем активные с дедлайном.
+        from src.bot.services.task_registry import drain as drain_inflight
         from src.rag.llm import aclose_async_client
 
+        with contextlib.suppress(Exception):
+            await drain_inflight(timeout=25.0)
         with contextlib.suppress(Exception):
             await aclose_async_client()
         with contextlib.suppress(Exception):

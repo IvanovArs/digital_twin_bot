@@ -1,6 +1,6 @@
-"""Per-update DB session + User resolution middleware.
+"""Middleware: на каждый update — открыть DB-сессию и резолвить User.
 
-Injects ``session`` (AsyncSession) and ``user`` (src.db.User) into handler kwargs.
+Инжектит ``session`` (AsyncSession) и ``user`` (src.db.User) в kwargs хендлера.
 """
 
 from __future__ import annotations

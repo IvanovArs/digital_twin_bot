@@ -1,37 +1,37 @@
-# Deploying digital_twin_bot on a CPU-only VPS
+# Развёртывание digital_twin_bot на CPU-only VPS
 
-## Hardware requirements
+## Требования к железу
 
-| Resource | Minimum | Comfortable |
+| Ресурс | Минимум | Комфортно |
 |---|---|---|
-| CPU cores | 4 | 8 |
-| RAM | 8 GB | 16 GB |
-| Disk | 20 GB | 40 GB |
+| CPU-ядра | 4 | 8 |
+| RAM | 8 ГБ | 16 ГБ |
+| Диск | 20 ГБ | 40 ГБ |
 
-Tested on Ubuntu 22.04 / Debian 12.
+Проверено на Ubuntu 22.04 / Debian 12.
 
-## One-time setup
+## Первоначальная настройка
 
 ```bash
-# 1. Install Docker Engine + compose plugin
+# 1. Установить Docker Engine + compose plugin
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER   # log out/in afterwards
+sudo usermod -aG docker $USER   # после этого выйти/войти
 
-# 2. Clone and bootstrap
+# 2. Клонировать репо
 git clone https://github.com/<your-fork>/digital_twin_bot.git
 cd digital_twin_bot
 
-# 3. Fetch the LLM (5 GB GPU, 2.5 GB Q4)
+# 3. Скачать LLM (~2,5 ГБ для Q4_K_M)
 mkdir -p data/models
 curl -L -o data/models/Qwen3-4B-Q4_K_M.gguf \
   'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=1'
 
-# 4. Configure env
+# 4. Конфиг окружения
 cp deploy/.env.prod.example deploy/.env
-nano deploy/.env   # fill in BOT_TOKEN, ADMIN_TELEGRAM_IDS, POSTGRES_PASSWORD
+nano deploy/.env   # BOT_TOKEN, ADMIN_TELEGRAM_IDS, POSTGRES_PASSWORD
 ```
 
-## Run
+## Запуск
 
 ```bash
 cd deploy
@@ -39,84 +39,91 @@ docker compose --env-file .env up -d
 docker compose logs -f bot
 ```
 
-First start downloads the `bge-m3` embedding model (~2.3 GB) **and** the
-`bge-reranker-v2-m3` cross-encoder (~570 MB) into the `hf_cache` volume;
-subsequent restarts are instant.
+При первом старте скачивается `bge-m3` (~2,3 ГБ) **и** `bge-reranker-v2-m3`
+(~570 МБ) в volume `hf_cache`. Дальнейшие рестарты — мгновенно.
 
-## Performance knobs
+## Тонкая настройка производительности
 
-`deploy/.env` exposes the levers that matter on a small VPS:
+`deploy/.env` содержит ключевые рычаги для маленького VPS:
 
-- `LLAMA_CTX_SIZE=4096` — enough for our top-8 × 650-char chunks plus the
-  600-token answer budget. Raising it costs RAM (KV-cache scales linearly) and
-  slows prefill; don't bump it unless you also tune `MAX_CONTEXT_CHARS`.
-- `LLAMA_PARALLEL=1` — process one request at a time so all CPU goes to the
-  active user's generation. `parallel=2` only helps when you have ≥8 vCPU.
-- `LLAMA_BATCH_SIZE=128` — match `parallel=1`; larger batches don't help when
-  nothing else is in-flight.
-- `LLM_TEMPERATURE=0.7`, `LLM_TOP_P=0.8`, `LLM_TOP_K=20`, `LLM_MIN_P=0.0`,
-  `LLM_REPEAT_PENALTY=1.05` — Qwen3 non-think recipe (official). Change only
-  if answers feel off; raising `temperature` to 1.0 makes them more creative
-  but less grounded in the textbook.
+- `LLAMA_CTX_SIZE=4096` — хватает для top-5 чанков × 650 chars + system + 220
+  токенов ответа. Поднятие стоит RAM (KV-cache растёт линейно) и замедляет
+  prefill; не трогать без подгона `MAX_CONTEXT_CHARS`.
+- `LLAMA_PARALLEL=1` — обрабатываем по одному запросу за раз, чтобы все CPU
+  шли на генерацию активного юзера. `parallel=2` имеет смысл от 8 vCPU.
+- `LLAMA_BATCH_SIZE=512` + `LLAMA_UBATCH_SIZE=512` — оптимально для prefill
+  на CPU. Меньше — медленнее prefill; больше — без выигрыша.
+- `LLM_TEMPERATURE=0.7` (env) — это для второстепенных вызовов. Основной
+  RAG-стрим в `qa_pipeline._stream_answer_to_ui` форсит `0.1` для
+  фактических ответов.
+- `LLM_MAX_TOKENS=220` — вместе с новым свободным промптом (без жёсткой
+  «3-5 буллетов» структуры) этого хватает на 2-5 предложений с источниками.
 
-The KV-cache is quantised (`--cache-type-k q4_0 --cache-type-v q4_0`) and
-pinned in RAM (`--mlock`) so latency is stable across requests instead of
-fluctuating with swap pressure.
+KV-cache квантуется (`--cache-type-k q8_0 --cache-type-v q8_0`) и пинится
+в RAM (`--mlock`) — латентность стабильна, без свопа. `--cache-reuse 256`
+переиспользует префикс system-prompt'а между запросами (~600 токенов
+prefill сэкономлено в burst).
 
-## Feeding textbooks
+## Загрузка учебников
 
-Via Telegram (recommended — works from anywhere):
+Через Telegram (рекомендуется — работает откуда угодно):
 
-1. Talk to your bot. If your Telegram ID is in `ADMIN_TELEGRAM_IDS`, admin commands unlock.
-2. `/admin_subjects` — see what courses and how many materials are indexed.
-3. `/admin_upload <slug>` — the bot asks for a file; send a PDF or TXT.
-4. `/admin_reindex <slug>` — re-build the RAG index for that subject (or run
-   `/admin_reindex` without args to rebuild all subjects).
-5. `/admin_stats` — request counts, average rating, p95 latency.
+1. Напиши боту. Если твой Telegram ID в `ADMIN_TELEGRAM_IDS`, доступны admin-команды.
+2. `/admin_subjects` — список курсов и сколько материалов проиндексировано.
+3. `/admin_upload <slug>` — бот попросит файл; отправь PDF/TXT/MD/DOCX.
+4. `/admin_reindex <slug>` — пересобрать индекс предмета (или без аргумента
+   — всё разом).
+5. `/admin_stats` — счётчики, средний рейтинг, p95 latency.
 
-Via SSH (offline bulk load):
+Через SSH (массовая офлайн-загрузка):
 
 ```bash
-# Drop files directly, then reindex
 cp /path/to/*.pdf data/books/theory_of_systems/
 docker compose exec bot python -m src.rag.ingest
 ```
 
-## Adding a new subject
+## Добавить новый курс
 
-1. Edit `courses.yaml`, add a new entry (unique slug, titles in EN + RU).
-2. Restart bot: `docker compose restart bot`.
-3. Upload materials and reindex (see above).
+1. В `courses.yaml` — новая запись (уникальный slug + title_en/title_ru).
+2. Перезапустить бота: `docker compose restart bot`.
+3. Загрузить материалы и пересобрать (см. выше).
 
-## Upgrading
+## Обновление
 
 ```bash
 git pull
 docker compose --env-file .env build bot
 docker compose --env-file .env up -d
-# alembic migrations run automatically on bot startup
+# миграции alembic запускаются автоматически на старте бота
 ```
 
-## Backup / restore
+## Бэкап / восстановление
 
-Postgres data lives in the `deploy_pgdata` volume:
+Данные Postgres лежат в volume `deploy_pgdata`:
 
 ```bash
 docker compose exec postgres pg_dump -U bot digital_twin > backup.sql
 ```
 
-Books and the RAG index live under `data/books` and `data/index` on the host —
-back them up with `tar` or `rsync`.
+Учебники и RAG-индекс — на хосте под `data/books` и `data/index`. Бэкап
+обычным `tar`/`rsync`.
 
-## Troubleshooting
+## Решение проблем
 
-- **`llama-cpp` healthcheck failing.** Check the model file exists at
-  `data/models/$LLM_MODEL_FILE`. First start takes ~1 minute to load weights.
-- **Bot loops on `connection failed`.** Postgres not yet ready —
-  `depends_on.condition: service_healthy` handles this, but you can watch
-  `docker compose logs postgres`.
-- **Answer takes 60+ s.** Expected on 4-core CPU with Qwen3-4B. Increase
-  `LLAMA_THREADS` to match actual cores (up to nproc). Upgrade to 8 cores.
-- **OCR not working.** Ingest logs `[warn] OCR недоступен`. Tesseract is
-  installed inside the bot image; if you mounted a different entrypoint,
-  make sure `tesseract`, `tesseract-ocr-rus`, `tesseract-ocr-eng` are present.
+- **`llama-cpp` healthcheck падает.** Проверь, что модель лежит по пути
+  `data/models/$LLM_MODEL_FILE`. Первая загрузка весов занимает ~1 минуту.
+- **Бот в петле `connection failed`.** Postgres ещё не готов —
+  `depends_on.condition: service_healthy` это лечит, но можно следить
+  в `docker compose logs postgres`.
+- **Ответ занимает 60+ с.** Норма для 4-ядерного CPU с Qwen3-4B. Увеличить
+  `LLAMA_THREADS` до фактического числа ядер; апгрейд до 8 ядер.
+- **OCR не работает.** В логах ingest «[warn] OCR недоступен». Tesseract
+  ставится в bot-образ; если ты подменил entrypoint, проверь, что
+  `tesseract`, `tesseract-ocr-rus`, `tesseract-ocr-eng` присутствуют.
+- **Ответы «выдумывают».** Скорее всего среди фрагментов мало
+  релевантного. Подстрой `RERANK_MIN_SCORE` (по умолчанию 1.5) и проверь
+  через `python -m src.rag.cli_search "твой вопрос"` — нет ли в топе
+  явного мусора. Если есть — пересобрать индекс с лучшим OCR.
+- **«Не нашлось» хотя в учебнике есть.** Бот идёт в web-fallback. Если
+  это нежелательно, поднимите `RERANK_MIN_SCORE` (фильтр строже) или
+  пересоберите индекс с большим chunk overlap.

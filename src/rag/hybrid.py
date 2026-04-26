@@ -1,25 +1,8 @@
-"""Hybrid BM25 + dense retrieval with Reciprocal Rank Fusion (RRF).
+"""BM25 + dense retrieval fused with RRF (Cormack et al., 2009).
 
-Why both:
-
-* bge-m3 (dense, bi-encoder) is great on semantics — finds chunks that
-  paraphrase the question. But it normalises away exact-token matches. A
-  student asking «кто автор теории систем» doesn't pull the Berталанфи
-  page up if the page phrases it as «один из основоположников общей теории
-  систем» rather than «автор теории систем».
-
-* BM25 (sparse, lexical) is the opposite: it thrives on rare exact tokens
-  (surnames, years, acronyms, GOST numbers) that embedding cosine treats
-  as noise. On «кто такой Фримен» it finds the exact page immediately.
-
-Together, merged via Reciprocal Rank Fusion (Cormack et al., 2009), you
-get the best of both — semantic coverage + literal precision. RRF ignores
-raw scores (which aren't comparable between BM25 and cosine) and fuses
-by *rank* alone, which is robust to scale differences.
-
-One process-wide BM25 index is built lazily from ``chunks.jsonl``; it
-shares its chunk order with ``retriever._load_index`` so we can map
-indices both ways.
+BM25 catches rare lexical hits (surnames, GOST numbers) that cosine
+normalises away; dense catches paraphrases BM25 misses. Fusion is by
+rank, not score, since BM25 and cosine aren't on the same scale.
 """
 
 from __future__ import annotations
@@ -41,11 +24,11 @@ from src.rag.retriever import (
 
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9]+")
 
-# Lightweight Russian suffix stripper — same class used in the glossary
-# expander. Enough to align «стейкхолдер», «стейкхолдера», «стейкхолдеры»,
-# «стейкхолдеров» under one BM25 token so lexical search stops missing
-# inflected forms. Runs in ~1 µs per token; no extra dependency
-# (pymorphy2 would add ~80 MB and a GPL licence surface).
+# Лёгкий стриппер русских суффиксов — тот же класс, что в glossary expander.
+# Достаточно, чтобы «стейкхолдер», «стейкхолдера», «стейкхолдеры»,
+# «стейкхолдеров» сводились к одному BM25-токену — лексический поиск
+# перестаёт промахиваться по словоформам. Работает ~1 мкс/токен; pymorphy2
+# добавил бы ~80 МБ и GPL-зависимость.
 _RU_SUFFIX = re.compile(
     r"(ами|ями|ыми|ими|ого|ему|ому|ыми|ого|ой|ою|ую|ев|ов|ах|ях|ем|ой|"
     r"ие|ия|ии|ой|ей|ью|ей|ь|ы|и|а|я|е|у|ю|й|й)$"
@@ -54,10 +37,10 @@ _EN_SUFFIX = re.compile(r"(ing|ed|ly|es|s)$")
 
 
 def _stem(tok: str) -> str:
-    # Don't strip tokens shorter than 4 chars — false positives dominate.
+    # Не трогаем токены короче 4 символов — false positives доминируют.
     if len(tok) <= 3:
         return tok
-    # Keep digits and acronyms intact.
+    # Цифры и акронимы оставляем как есть.
     if tok[0].isdigit() or tok.isupper():
         return tok.lower()
     low = tok.lower()
@@ -74,14 +57,13 @@ def _tokenise(text: str) -> list[str]:
 
 @lru_cache(maxsize=1)
 def _bm25() -> tuple[BM25Okapi | None, list[dict[str, object]]]:
-    """Build the BM25 index once per process. Shares ``load_chunks`` with
-    the dense retriever so chunks.jsonl isn't parsed twice — on a 15 k
-    corpus that saves ~80 MB of duplicated JSON in memory.
+    """Строим BM25-индекс один раз на процесс. Шарим ``load_chunks`` с
+    dense-retriever'ом — chunks.jsonl парсится один раз, на корпусе 15k
+    это экономит ~80 МБ дублированного JSON в памяти.
 
-    Returns ``(None, [])`` if the index is missing (e.g., fresh deploy
-    before ``python -m src.rag.ingest`` ran). Callers treat that as an
-    empty result set and fall through to the web-fallback path instead
-    of crashing the whole turn.
+    Возвращает ``(None, [])`` если индекса нет (свежий deploy до
+    ``python -m src.rag.ingest``). Caller'ы трактуют это как пустой
+    результат и уходят в web-fallback, а не валят всю turn'у.
     """
     try:
         chunks = load_chunks()
@@ -93,9 +75,8 @@ def _bm25() -> tuple[BM25Okapi | None, list[dict[str, object]]]:
 
 @lru_cache(maxsize=1)
 def _fingerprint_index() -> dict[str, int]:
-    """Map ``_fingerprint(text) → chunk_idx`` so BM25-only hits look up
-    their cosine row in O(1) instead of scanning the whole chunks list.
-    Builds once per process, after the chunk table is loaded."""
+    """Карта ``_fingerprint(text) → chunk_idx`` — BM25-only хиты находят свою
+    cosine-строку за O(1) вместо линейного скана. Строится один раз на процесс."""
     _, chunks = _bm25()
     return {_fingerprint(str(c["text"])): i for i, c in enumerate(chunks)}
 
@@ -106,10 +87,10 @@ def search_bm25(
     k: int = 20,
     subject_slug: str | None = None,
 ) -> list[Hit]:
-    """Top-k BM25 hits. Score is raw BM25, not comparable to cosine."""
+    """Top-k BM25-хиты. Score — сырой BM25, несопоставим с cosine."""
     bm25, chunks = _bm25()
     if bm25 is None or not chunks:
-        return []  # index not built yet — graceful degrade to dense-only
+        return []  # индекса ещё нет — мягкий degrade до dense-only
     q_tokens = _tokenise(query)
     if not q_tokens:
         return []
@@ -137,22 +118,20 @@ def search_bm25(
 
 
 def _fingerprint(text: str) -> str:
-    """Stable identity key for RRF deduplication.
+    """Стабильный identity-key для RRF-дедупа.
 
-    Previously used the first 200 chars of ``text`` — cheap but collided
-    on textbook chapters that share a common intro boilerplate («Глава 3.
-    Системный анализ. Введение. В данной главе рассматривается…»). Two
-    different chapters with the same opener would be merged and one
-    chunk's cosine score would silently overwrite the other. A full md5
-    of the chunk body eliminates the collision; the hash cost is
-    negligible (~1 µs per chunk).
+    Раньше брали первые 200 символов — дёшево, но коллизия на главах
+    учебника с общим intro-boilerplate'ом («Глава 3. Системный анализ.
+    Введение. В данной главе рассматривается…»). Две разных главы
+    мержились в одну, cosine-score одной молча перезаписывал другой.
+    Полный md5 от тела устраняет коллизию; стоимость ~1 мкс на чанк.
     """
     return hashlib.md5((text or "").encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def _rrf_ranks(*rankings: list[str], rrf_k: float = 60.0) -> dict[str, float]:
-    """Reciprocal Rank Fusion. Standard k=60 from the TREC paper — robust
-    across domains, not worth tuning for our scale."""
+    """Reciprocal Rank Fusion. Стандартный k=60 из TREC-paper'а — устойчив
+    по доменам, тюнить под наш масштаб смысла нет."""
     agg: dict[str, float] = {}
     for ranking in rankings:
         for rank, key in enumerate(ranking, start=1):
@@ -161,11 +140,11 @@ def _rrf_ranks(*rankings: list[str], rrf_k: float = 60.0) -> dict[str, float]:
 
 
 def _cosine_for_chunk(query_vec: np.ndarray, matrix: np.ndarray, idx: int) -> float:
-    """Compute cosine similarity for a single chunk by direct matrix lookup.
+    """Cosine similarity для одного чанка прямой матричной выборкой.
 
-    Cheap: it's one dot product of 1024-d vectors. We need this for hits
-    that came from BM25 but not dense — ``MIN_TOP_SCORE`` gating downstream
-    expects every returned hit to carry a real cosine score.
+    Дёшево — один dot-product 1024-d векторов. Нужно для хитов, пришедших
+    только из BM25: downstream-гейт ``MIN_TOP_SCORE`` ожидает реальный
+    cosine на каждом возвращённом хите.
     """
     return float(matrix[idx] @ query_vec)
 
@@ -176,28 +155,26 @@ def search_hybrid(
     k: int = 20,
     subject_slug: str | None = None,
 ) -> list[Hit]:
-    """Run BM25 + dense, fuse via RRF, return top-k Hit objects.
+    """BM25 + dense, объединение через RRF, возвращает top-k Hit'ов.
 
-    Every returned Hit carries a real cosine ``score`` (not BM25 or RRF),
-    so the existing ``MIN_TOP_SCORE`` gate and the reranker-independent
-    fallback logic keep working unchanged.
+    Каждый Hit несёт настоящий cosine-``score`` (не BM25 и не RRF), поэтому
+    существующий ``MIN_TOP_SCORE``-гейт и fallback-логика работают без правок.
 
-    If ``subject_slug`` is passed, both retrievers are subject-scoped.
+    Если задан ``subject_slug`` — оба retriever'а скоупятся на этот предмет.
     """
     dense_hits = search(query, k=k, subject_slug=subject_slug)
     bm25_hits = search_bm25(query, k=k, subject_slug=subject_slug)
 
-    # Fast path: one side is empty or identical → skip the RRF overhead.
+    # Fast-path: одна сторона пустая → RRF не нужен.
     if not bm25_hits:
         return dense_hits
     if not dense_hits:
-        # Dense missed entirely but BM25 found something. Enrich BM25 hits
-        # with real cosine scores so the downstream gate works. O(1) idx
-        # lookup via the prebuilt fingerprint cache.
+        # Dense промахнулся, BM25 нашёл. Обогащаем BM25-хиты cosine-score'ом,
+        # чтобы downstream-гейт работал. O(1)-lookup через preуd fingerprint-кэш.
         try:
             matrix, _ = _load_index()
         except FileNotFoundError:
-            return bm25_hits[:k]  # can't compute cosine — return BM25 as-is
+            return bm25_hits[:k]  # cosine не посчитать — возвращаем BM25 как есть
         q_vec = _encode_query(query)
         fp_index = _fingerprint_index()
         from dataclasses import replace
@@ -211,8 +188,8 @@ def search_hybrid(
             enriched.append(replace(h, score=_cosine_for_chunk(q_vec, matrix, idx)))
         return enriched[:k]
 
-    # Normal path: RRF merge. Keep dense's cosine scores as the Hit.score
-    # of record; only BM25-only chunks need a freshly computed cosine.
+    # Обычный путь: RRF merge. Сохраняем cosine от dense как Hit.score
+    # эталонный; только BM25-only чанкам считаем cosine заново.
     dense_by_fp = {_fingerprint(h.text): h for h in dense_hits}
     bm25_by_fp = {_fingerprint(h.text): h for h in bm25_hits}
 
@@ -220,9 +197,8 @@ def search_hybrid(
     bm25_ranking = [_fingerprint(h.text) for h in bm25_hits]
     fused = _rrf_ranks(dense_ranking, bm25_ranking)
 
-    # Resolve cosine for any BM25-only chunks lazily. The fingerprint→idx
-    # cache is prebuilt once per process, so lookups stay O(1) even on a
-    # 100 k-chunk corpus.
+    # Cosine для BM25-only-чанков считаем лениво. Fingerprint→idx-кэш
+    # собран один раз на процесс, поэтому lookup — O(1) даже на корпусе 100k.
     cached_q: np.ndarray | None = None
     cached_matrix: np.ndarray | None = None
     cached_fp_index: dict[str, int] | None = None

@@ -1,13 +1,13 @@
-"""Heuristic OCR-garbage filter for RAG chunks.
+"""Эвристический фильтр OCR-мусора для RAG-чанков.
 
-Tesseract on scanned textbooks sometimes emits chunks like «фформационный
+Tesseract на сканированных учебниках иногда выдаёт чанки вроде «фформационный
 noxxon», «Gow Бергаланфи, 'Tor термин», «„шт == some До ==YASS ownsere…».
-Qwen3-4B reads such chunks and synthesises confident-sounding but fabricated
-author attributions («G. Bernaldi, 1984» from garbled «Бергаланфи»). Cheaper
-to drop the chunk than to scrub the answer.
+Qwen3-4B читает такие чанки и синтезирует уверенно-выглядящие, но выдуманные
+авторские атрибуции («G. Bernaldi, 1984» из изуродованного «Бергаланфи»).
+Дешевле дропнуть чанк, чем чистить ответ.
 
-Used both at ingest time (to keep trash out of the index) and in
-``format_context`` (belt-and-suspenders for pre-existing indexes).
+Используется и на ingest (чтобы мусор не попал в индекс), и в
+``format_context`` (страховка для уже существующих индексов).
 """
 
 from __future__ import annotations
@@ -18,19 +18,19 @@ _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _WORD_RE = re.compile(r"[\w'-]+", re.UNICODE)
 _CYR = re.compile(r"[а-яА-ЯёЁ]")
 _LAT = re.compile(r"[a-zA-Z]")
-# ``STEP-анализ``, ``SWOT-анализ``, ``PESTELанализ`` — ALL-CAPS Latin acronym
-# glued to a Russian suffix with or without a hyphen. This is *not* OCR
-# damage (it's how these terms appear in Russian textbooks), so we exclude
-# the pattern from the mixed-alphabet tally.
+# ``STEP-анализ``, ``SWOT-анализ``, ``PESTELанализ`` — ALL-CAPS Latin акроним,
+# приклеенный к русскому суффиксу с дефисом или без. Это *не* OCR-повреждение
+# (так эти термины и появляются в русских учебниках), исключаем из
+# mixed-alphabet-подсчёта.
 _ACRONYM_COMPOUND = re.compile(r"^[A-Z]{2,}-?[а-яА-ЯёЁ]+$")
-# Legitimate single-letter tokens in RU/EN prose: vowels/pronouns («а»,
-# «и», «я», «a», «I»), а также буквы-инициалы и части сокращений вроде
-# «т. е.», «т. п.», «с. 12», «В. Г.». Anything outside this set of length 1
-# is almost always OCR debris from a dropped ligature or a page header.
+# Легитимные однобуквенные токены в RU/EN-прозе: гласные/местоимения
+# («а», «и», «я», «a», «I»), а также буквы-инициалы и части сокращений
+# вроде «т. е.», «т. п.», «с. 12», «В. Г.». Всё, что вне этого set'а
+# длиной 1, — почти всегда OCR-debris от потерянной лигатуры или page-header'а.
 _OK_SINGLES = frozenset("аиоеяувскмгтпнрдлфзхчшщбАИОЕЯУВСКМГТПНРДЛФЗХЧШЩaIА")
 
-# Thresholds are intentionally conservative: clean pages score near zero
-# on every signal; Tesseract's worst pages clear these by 2-5×.
+# Пороги намеренно консервативные: чистые страницы дают почти ноль по
+# каждому сигналу; худшие страницы Tesseract'а пробивают их в 2–5×.
 _MIXED_RATIO_MAX = 0.05
 _STRAY_RATIO_MAX = 0.15
 _LAT_IN_RU_MAX = 0.15
@@ -39,28 +39,28 @@ _MIN_ALPHA_TOKENS = 12
 
 
 def is_ocr_garbage(text: str, *, ru_dominant: bool = True) -> bool:
-    """Return True if the chunk looks like OCR debris.
+    """True если чанк похож на OCR-debris.
 
-    ``ru_dominant`` defaults to True — the project currently only indexes
-    Russian textbooks. When an English/Kazakh/etc. book is ingested, the
-    caller can detect the language upstream and flip this flag so the
-    "too much Latin" signal doesn't misfire on legitimate English prose.
-    See ``is_ocr_garbage_auto`` for automatic dominant-language detection.
+    ``ru_dominant`` по умолчанию True — проект сейчас индексирует только
+    русские учебники. Когда грузится английская/казахская/др. книга,
+    caller может задетектить язык выше по стеку и развернуть флаг —
+    сигнал «слишком много латиницы» не сработает на легитимной EN-прозе.
+    См. ``is_ocr_garbage_auto`` для авто-детекта доминирующего языка.
     """
-    # Strip URLs first — a legitimate source link («https://elib.spbstu.ru/…»)
-    # tokenises to 8-10 Latin pieces and would otherwise flip the "mostly
-    # Russian page but too much Latin" heuristic.
+    # Сначала режем URL'ы — легитимная ссылка («https://elib.spbstu.ru/…»)
+    # токенизуется в 8–10 латинских кусков и развернула бы эвристику
+    # «в основном русская страница, но слишком много латиницы».
     text = _URL_RE.sub(" ", text)
     words = _WORD_RE.findall(text)
-    # Only alphabetic tokens count — pure-digit tokens («рис. 9», «8» from a
-    # footnote) aren't a signal of OCR damage.
+    # Считаем только алфавитные токены — pure-digit-токены («рис. 9», «8» из
+    # сноски) не сигнал OCR-повреждения.
     alpha = [w for w in words if _CYR.search(w) or _LAT.search(w)]
     if len(alpha) < _MIN_ALPHA_TOKENS:
-        return False  # too short to judge reliably — let it through
+        return False  # слишком коротко для надёжного суждения — пропускаем
     cyr_only = lat_only = mixed = short_stray = 0
     for w in alpha:
         if _ACRONYM_COMPOUND.match(w):
-            cyr_only += 1  # treat «STEP-анализ» as a Russian word
+            cyr_only += 1  # «STEP-анализ» считаем русским словом
             continue
         has_c = bool(_CYR.search(w))
         has_l = bool(_LAT.search(w))

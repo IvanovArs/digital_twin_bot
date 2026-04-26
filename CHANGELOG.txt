@@ -1,0 +1,56 @@
+# Changelog
+
+Формат: `version (DD.MM.YY)` + плоский bullet-список изменений.
+
+## 0.5.0 (26.04.26)
+
+- LRU-кеш ответов на повторные вопросы (мгновенный отклик при повторе).
+- Прогрев BM25-индекса в фоновом warmup'е (первый вопрос больше не платит 5–10с).
+- LLMProvider Protocol: возможность подключать OpenAI/Anthropic как fallback при перегрузе локального llama-server.
+- CHANGELOG.md / BACKLOG.md разделены: changelog только про прошлое, backlog — про планы.
+
+
+## 0.4.0 (26.04.26)
+
+- Авто-веб-fallback: если LLM ответил «в материалах не нашлось» — бот сам идёт в интернет.
+- MMR-диверсификация в реранкере (TOP_K больше не съедают 5 фрагментов одной страницы).
+- RERANK_MIN_SCORE 0.0 → 1.5 (логит-калибровка bge-reranker-v2-m3).
+- Качественный фильтр web-сниппетов (drop &lt; 60 chars / &lt; 8 слов / substring of title).
+- Атомарный `record_feedback` через `INSERT … ON CONFLICT DO NOTHING` на Postgres + savepoint на SQLite.
+- `/find` через ILIKE в SQL на Postgres (раньше грузил всю историю в Python).
+- Graceful shutdown: SIGTERM ждёт активные QA-стримы до 25с прежде чем убивать.
+- Lazy="raise" на `User.dialogs` — N+1 на каждом session_mw устранён.
+- Postgres-индексы: `(user_id, is_favourite, created_at DESC)`, `dialogs.created_at`, `feedback.created_at`.
+- Docker: `--ctx-size 4096` + `--cache-reuse 256` + `--threads-batch 4` + mem_limit per service.
+- httpx singleton с `Limits(4 keepalive / 8 max)` к llama-server.
+- Web-search: `DDGS(timeout=8)` + asyncio wall-clock 20с.
+- Inline-cache cap 10k entries (защита от inline-flood-OOM).
+- `LLAMA_SERVER_EXE` env (раньше был хардкод пути на машину разработчика).
+- Split: `qa_pipeline.py` → `qa_pipeline.py` (оркестрация) + `qa_renderer.py` (Telegram-форматирование).
+- Прогретый prompt без жёсткой 3-секционной структуры (меньше «filler»-галлюцинаций).
+- LLM_MAX_TOKENS 320 → 220 (быстрее декод + меньше место для выдумывания).
+
+## 0.3.0 (20.04.26)
+
+- BGE-M3 + bge-reranker-v2-m3 двухстадийный retrieval.
+- Streaming-ответ через SSE с throttled edit (1.1с).
+- FAQ-короткое замыкание для teacher-curated ответов.
+- Glossary upload + lookup без вызова LLM.
+- Inline-режим с кнопкой «🔍 Получить ответ» (работает без `/setinlinefeedback`).
+- Comparison-флоу «сравни X и Y».
+- Brief-режим (одна параграф + источники в строку).
+- Follow-up кнопки «⬇️ Проще / 💡 Пример / 📖 Подробнее».
+- Web-fallback через DuckDuckGo при низком top_score.
+- Circuit breaker для llama-server.
+- /history с пагинацией, ⭐ favourites, /find, /export.
+
+## 0.2.0 (16.04.26)
+
+- Multi-subject архитектура (router + per-subject ingest).
+- alembic миграции для Postgres.
+- Telegram bot на aiogram 3.
+- Базовый RAG с BGE-M3.
+
+## 0.1.0 (08.04.26)
+
+- Первый proof-of-concept на Qwen3-4B + sentence-transformers.

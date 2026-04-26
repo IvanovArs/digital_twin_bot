@@ -1,20 +1,19 @@
-"""Cross-module signal for "RAG models are loaded and ready to serve".
+"""Кросс-модульный сигнал «RAG-модели загружены и готовы отвечать».
 
-The bot warms up bge-m3 and the unified index in the background at startup.
-On first boot that involves downloading ~3 GB from HuggingFace, which can
-take 30-60 s on a fast link and *minutes* on a slow one.
+Бот прогревает bge-m3 и unified-индекс в фоне на старте. При первом запуске
+это означает скачать ~3 ГБ с HuggingFace — 30–60 с на быстром линке и
+*минуты* на медленном.
 
-If a student sends a question before the warm-up finishes, the retrieval
-step blocks on ``SentenceTransformer(...)`` inside a worker thread, and the
-UX looks like "bot hangs on placeholder". This event lets the QA pipeline
-show an honest status ("прогреваюсь…") instead, and lets the warm-up task
-signal completion exactly once.
+Если студент пишет вопрос до прогрева, retrieval блокируется на
+``SentenceTransformer(...)`` в worker-thread'е, и UX выглядит как «бот
+завис на плейсхолдере». Этот event позволяет QA-пайплайну показать
+честный статус («прогреваюсь…»), а warm-up task'у — однократно
+просигналить о завершении.
 
-The Event is created lazily on first access so it always binds to the
-**currently running** asyncio loop. Historically we created it at module
-import; that worked in production (one loop ever) but blew up in tests
-that use pytest-asyncio's per-test loops with "got Future attached to a
-different loop".
+Event создаётся лениво на первый доступ — всегда биндится к **текущему**
+asyncio-loop'у. Раньше создавали на module-import; в проде работало
+(один loop на жизнь), но в тестах с pytest-asyncio per-test-loop'ами
+вылетало с «got Future attached to a different loop».
 """
 
 from __future__ import annotations
@@ -25,11 +24,11 @@ _EVENT: asyncio.Event | None = None
 
 
 def models_ready_event() -> asyncio.Event:
-    """Return the singleton readiness Event, creating it on first call.
+    """Singleton-Event готовности, создаётся при первом вызове.
 
-    Lazy creation defers binding to the running loop until someone actually
-    needs the Event — safer in tests and for any future "graceful restart"
-    code path that recreates the event loop.
+    Ленивое создание откладывает binding к running-loop'у до момента, когда
+    Event реально нужен — безопаснее в тестах и в любом будущем
+    «graceful-restart»-сценарии, пересоздающем event-loop.
     """
     global _EVENT
     if _EVENT is None:
@@ -37,9 +36,9 @@ def models_ready_event() -> asyncio.Event:
     return _EVENT
 
 
-# Backwards-compat alias for existing call sites that read/write directly.
+# Backwards-compat alias для старых call-site'ов, читающих/пишущих напрямую.
 class _LazyEventProxy:
-    """Forward set/wait/is_set to the lazily-created Event."""
+    """Прокси set/wait/is_set к лениво-создаваемому Event'у."""
 
     def set(self) -> None:
         models_ready_event().set()

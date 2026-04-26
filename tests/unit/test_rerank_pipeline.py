@@ -19,14 +19,20 @@ def _hit(text: str, score: float, subject: str = "tos") -> Hit:
 
 
 def test_rerank_final_respects_scorer(monkeypatch) -> None:
-    """Cosine top-3 is A > B > C. The mocked reranker flips to C > A > B."""
+    """Cosine top-3 is A > B > C. The mocked reranker flips to C > A > B.
+
+    Scores chosen above RERANK_MIN_SCORE=1.5 (logit space, see config) so
+    the noise gate keeps all three. MMR falls back to plain rerank order
+    here because no real index is loaded for these chunks.
+    """
     a = _hit("A", 0.9)
     b = _hit("B", 0.8)
     c = _hit("C", 0.7)
     pool = [a, b, c]
 
     def fake_rerank(_q: str, texts: list[str]) -> list[float]:
-        mapping = {"A": 0.5, "B": 0.4, "C": 0.9}
+        # All above RERANK_MIN_SCORE=1.5 so nothing's gated as noise.
+        mapping = {"A": 4.0, "B": 3.5, "C": 5.0}
         return [mapping[t] for t in texts]
 
     import src.rag.reranker as rr_module
@@ -45,7 +51,8 @@ def test_rerank_final_keeps_cosine_scores_on_hits(monkeypatch) -> None:
 
     import src.rag.reranker as rr_module
 
-    monkeypatch.setattr(rr_module, "rerank", lambda _q, _t: [0.1, 0.9])
+    # Scores above RERANK_MIN_SCORE=1.5 so both survive the noise gate.
+    monkeypatch.setattr(rr_module, "rerank", lambda _q, _t: [2.0, 5.0])
     ordered = pipeline_mod._rerank_final("q", [a, b], k=2)
     assert ordered[0].score == 0.77  # B — cosine score preserved
     assert ordered[1].score == 0.91  # A
@@ -71,7 +78,8 @@ def test_rerank_final_respects_k(monkeypatch) -> None:
 
     import src.rag.reranker as rr_module
 
-    monkeypatch.setattr(rr_module, "rerank", lambda _q, texts: list(range(len(texts))))
+    # All scores above RERANK_MIN_SCORE=1.5 so the gate keeps the full pool.
+    monkeypatch.setattr(rr_module, "rerank", lambda _q, texts: [2.0 + i for i in range(len(texts))])
     top3 = pipeline_mod._rerank_final("q", pool, k=3)
     assert len(top3) == 3
 
@@ -109,8 +117,9 @@ async def test_resolve_subject_with_explicit_slug_applies_rerank(monkeypatch) ->
 
     import src.rag.reranker as rr_module
 
-    # Only the 2nd chunk is actually on-topic.
-    monkeypatch.setattr(rr_module, "rerank", lambda _q, t: [0.1, 0.9, 0.2])
+    # Only the 2nd chunk is actually on-topic. Scores above
+    # RERANK_MIN_SCORE=1.5 so the noise gate doesn't filter the relevant one.
+    monkeypatch.setattr(rr_module, "rerank", lambda _q, t: [1.6, 6.0, 1.7])
 
     # Stub catalog.require / detect_subject so we don't need a real catalog.
     class _Subj:

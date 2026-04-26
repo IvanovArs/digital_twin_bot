@@ -1,4 +1,4 @@
-"""Global error handler — the last line of defence."""
+"""Глобальный обработчик ошибок — последняя линия обороны."""
 
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ async def on_error(event: ErrorEvent) -> bool:
         update_id=getattr(event.update, "update_id", None),
     )
     upd = event.update
-    # Always clear the client-side callback spinner first — otherwise it spins
-    # for ~30 s waiting for an answerCallbackQuery that never comes.
+    # Сначала всегда снимаем callback-spinner у клиента — иначе он крутится
+    # ~30 с в ожидании answerCallbackQuery, который не придёт.
     if upd.callback_query is not None:
         with contextlib.suppress(Exception):
             await upd.callback_query.answer()

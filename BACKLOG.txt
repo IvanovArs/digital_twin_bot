@@ -1,0 +1,6 @@
+# Backlog
+
+Format: ## Date writing \n - <plans> (time of solv)
+
+## 26.04.26
+-add auto-solving of tests on websites (idk)

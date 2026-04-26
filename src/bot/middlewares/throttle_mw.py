@@ -1,31 +1,31 @@
-"""Per-user throttling — keep one user's burst from DOSing the LLM.
+"""Per-user throttling — burst одного пользователя не должен DOS-ить LLM.
 
-The bot serves answers from a single CPU/GPU pinned llama-server
-(``--parallel 1``). One allowed user firing 10 questions back-to-back
-serialises into ~minutes of wall-clock and starves every other student.
+Бот отвечает с одного pinned-CPU/GPU llama-server'а (``--parallel 1``).
+Один разрешённый юзер с 10 вопросами подряд сериализуется в минуты
+wall-clock и блокирует всех остальных студентов.
 
-Two layers of defence:
+Два слоя защиты:
 
-1. **Min-interval gate** — silently drop a fresh heavy update if the same
-   user sent another less than ``_MIN_INTERVAL_S`` ago.
-2. **Per-user lock** — if a previous heavy update from the same user is
-   still running through ``run_qa_pipeline``, drop the new one.
+1. **Min-interval gate** — тихо дропаем свежий heavy-update, если тот же
+   юзер отправил предыдущий менее чем ``_MIN_INTERVAL_S`` назад.
+2. **Per-user lock** — если предыдущий heavy-update этого юзера ещё
+   крутится в ``run_qa_pipeline``, дропаем новый.
 
-Both layers are in-process (single-instance bot). For multi-instance
-deploys move to Redis-backed throttling.
+Оба слоя in-process (single-instance bot). Для multi-instance — переезд
+на Redis-backed throttling.
 
-Heavy = anything that triggers ``run_qa_pipeline``:
-  * free-text PM messages
-  * ``chosen_inline_result`` (auto-fires the pipeline when /setinlinefeedback
-    is enabled in BotFather)
+Heavy = всё, что запускает ``run_qa_pipeline``:
+  * свободный текст в PM
+  * ``chosen_inline_result`` (auto-fire пайплайна, когда /setinlinefeedback
+    включён в BotFather)
 
-NOT heavy (always pass through):
-  * ``inline_query`` — only returns the result list to Telegram, no LLM. Used
-    to be throttled too, but that ate the user's own ``chosen_inline_result``
-    that arrives within 1.5 s of the last keystroke, breaking the auto-answer
-    flow and leaving the «🔍 Получить ответ» button unswapped.
-  * ``callback_query`` — feedback 👍/👎, «что сейчас делается?», menu taps.
-  * Slash-command messages — /ask, /help, /admin_*.
+НЕ heavy (всегда пропускаем):
+  * ``inline_query`` — только возвращает список результатов в Telegram, без
+    LLM. Раньше тоже throttle'ился, но это съедало собственный
+    ``chosen_inline_result`` юзера, прилетающий в 1.5 с от последнего
+    keystroke, и ломало auto-answer-flow.
+  * ``callback_query`` — feedback 👍/👎, «что сейчас делается?», меню.
+  * Slash-команды — /ask, /help, /admin_*.
 """
 
 from __future__ import annotations
@@ -41,15 +41,14 @@ from aiogram.types import Message, Update
 
 log = structlog.get_logger(__name__)
 
-# Two heavy updates from the same user within this window → drop the second.
-# 1.5 s catches the most common "double-tap send" without feeling laggy.
+# Два heavy-update'а одного юзера в этом окне → второй дропаем.
+# 1.5 с ловит самый частый «double-tap send» и не ощущается лагом.
 _MIN_INTERVAL_S = 1.5
 
-# Entries in ``_last_ts`` older than this are evicted on write. Without
-# GC the dict grows unboundedly with every user who ever hit the bot
-# (problematic on a long-running instance: 100k users × 72 bytes = 7 MB
-# per dict, two dicts, no reclamation). A 24 h idle threshold is
-# generous for real human spacing and doesn't cause false positives.
+# Записи в ``_last_ts`` старше этого вытесняются на write. Без GC dict
+# растёт безгранично с каждым новым юзером (на долго-живущем инстансе
+# 100k юзеров × 72 байта = 7 МБ на dict, два dict'а, без освобождения).
+# 24 ч idle — щедрый порог для реального human-spacing'а, без false-positive'ов.
 _GC_IDLE_SECONDS = 24 * 3600
 
 
@@ -67,11 +66,11 @@ _locks: dict[int, asyncio.Lock] = {}
 
 
 def _is_heavy_update(update: Update) -> bool:
-    """A heavy update kicks off retrieval + LLM. Worth throttling.
+    """Heavy-update запускает retrieval + LLM. Стоит троттлить.
 
-    ``inline_query`` is intentionally NOT heavy — it just returns the result
-    list and would otherwise eat the very next ``chosen_inline_result`` from
-    the same user via the 1.5 s min-interval gate.
+    ``inline_query`` намеренно НЕ heavy — он только возвращает список
+    результатов, иначе бы съел следующий ``chosen_inline_result`` того же
+    юзера через 1.5-секундный min-interval.
     """
     if update.chosen_inline_result is not None:
         return True
@@ -80,12 +79,12 @@ def _is_heavy_update(update: Update) -> bool:
         return False
     text = (msg.text or msg.caption or "").lstrip()
     if text.startswith("/"):
-        return False  # /ask, /help, /admin_* — not heavy
+        return False  # /ask, /help, /admin_* — не heavy
     return bool(text)
 
 
 class ThrottleMiddleware(BaseMiddleware):
-    """Outer-middleware on ``dp.update``. Drops bursts and concurrent runs."""
+    """Outer-middleware на ``dp.update``. Дропает burst'ы и concurrent-run'ы."""
 
     async def __call__(
         self,
@@ -107,9 +106,8 @@ class ThrottleMiddleware(BaseMiddleware):
             log.info("throttle_drop_burst", telegram_id=uid, gap_ms=int((now - last) * 1000))
             return None
         _last_ts[uid] = now
-        # Amortise GC over normal traffic (≈1 in 200 passes) so we don't
-        # need a background timer and don't walk the whole dict on every
-        # message.
+        # Амортизируем GC по обычному трафику (≈1 раз на 200 проходов) —
+        # без фонового таймера и без обхода всего dict'а на каждое сообщение.
         if len(_last_ts) % 200 == 0:
             _gc_stale(now)
 

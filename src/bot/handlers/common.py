@@ -1,4 +1,4 @@
-"""Common commands: /start, /help, /subjects, /glossary + main-menu callbacks."""
+"""Общие команды: /start, /help, /subjects, /glossary + callbacks главного меню."""
 
 from __future__ import annotations
 
@@ -33,9 +33,9 @@ async def on_start_with_payload(
     user: User,
     lang: str,
 ) -> None:
-    """Deep-link /start payload handler. Inline mode's «📖 Инструкция» sends
-    the user to ``t.me/<bot>?start=help`` — we resolve that to the help text.
-    Unknown payloads fall through to the normal greeting.
+    """Хендлер deep-link payload'а /start. Inline-кнопка «📖 Инструкция» шлёт
+    юзера в ``t.me/<bot>?start=help`` — мы разворачиваем это в текст справки.
+    Неизвестные payload'ы падают в обычное приветствие.
     """
     payload = (command.args or "").strip().lower()
     if payload == "help":
@@ -101,12 +101,11 @@ async def on_mode(
     user: User,
     lang: str,
 ) -> None:
-    """/mode [brief|verbose] — set or view answer style.
+    """/mode [brief|verbose] — установить или показать стиль ответов.
 
-    Without an argument: show current mode + cheat-sheet. With an
-    argument: set it, persist immediately (committed outside the handler
-    by the middleware, but we flush here to be safe on SQLAlchemy 2.0
-    autoflush-off sessions).
+    Без аргумента: показывает текущий режим + справку. С аргументом:
+    устанавливает и сразу же flush'ит (commit делает middleware снаружи,
+    но flush здесь — на случай SQLAlchemy 2.0 autoflush-off-сессии).
     """
     arg = (command.args or "").strip().lower()
     if not arg:
@@ -123,7 +122,7 @@ async def on_mode(
             parse_mode="HTML",
         )
         return
-    # Accept English labels only (brief/verbose) — they match the enum.
+    # Принимаем только английские лейблы (brief/verbose) — они совпадают с enum.
     if arg not in {m.value for m in AnswerMode}:
         await message.answer(texts.tr(lang, texts.MODE_HELP), parse_mode="HTML")
         return
@@ -228,7 +227,7 @@ async def on_glossary(
     await message.answer(body, parse_mode="HTML", reply_markup=main_inline(lang))
 
 
-# ---------- main-menu inline callbacks ----------
+# ---------- callback'и главного меню ----------
 
 
 @router.callback_query(F.data == "menu:ask")
@@ -237,8 +236,8 @@ async def on_menu_ask(
     state: FSMContext,
     lang: str,
 ) -> None:
-    # If this callback came from an inline-sent message in some other chat
-    # (not our bot's PM), the FSM flow would need a chat we don't have.
+    # Если callback пришёл из inline-сообщения в чужом чате (не нашем PM) —
+    # для FSM нужен chat, которого у нас нет.
     if callback.message is None:
         await callback.answer(texts.tr(lang, texts.PROMPT_QUESTION), show_alert=True)
         return

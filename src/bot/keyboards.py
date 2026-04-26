@@ -1,11 +1,11 @@
-"""Inline keyboards for the bot.
+"""Inline-клавиатуры бота.
 
 Bot API 9.4 styles (Feb 2026):
-  "primary" = blue, "success" = green, "danger" = red.
-Older Telegram clients silently ignore the ``style`` field.
+  "primary" = синяя, "success" = зелёная, "danger" = красная.
+Старые Telegram-клиенты молча игнорируют поле ``style``.
 
-All interactive buttons live *under the message* as inline buttons — no
-persistent reply-keyboard strip at the bottom of the chat.
+Все интерактивные кнопки живут *под сообщением* как inline-кнопки —
+постоянной reply-keyboard-полосы внизу чата нет.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from src.bot import texts
 
 
 def main_inline(lang: str) -> InlineKeyboardMarkup:
-    """Primary menu row: ask / subjects / help. Attached to /start, /help, /subjects."""
+    """Главный ряд меню: задать вопрос / предметы / помощь. К /start, /help, /subjects."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -43,10 +43,10 @@ def main_inline(lang: str) -> InlineKeyboardMarkup:
 
 
 def ask_samples_inline(lang: str) -> InlineKeyboardMarkup:
-    """Sample-question buttons shown under /ask.
+    """Кнопки-сэмплы под /ask.
 
-    Each tap fires ``ask_sample:<idx>`` → student.py reuses the normal
-    free-text question flow with the sample text plugged in.
+    Каждый тап шлёт ``ask_sample:<idx>`` → student.py переиспользует обычный
+    free-text-флоу, подставив текст сэмпла.
     """
     rows: list[list[InlineKeyboardButton]] = []
     idx_lang = 0 if lang == "ru" else 1
@@ -63,8 +63,8 @@ def ask_samples_inline(lang: str) -> InlineKeyboardMarkup:
 
 
 def _followup_row(dialog_id: int, lang: str) -> list[InlineKeyboardButton]:
-    """Follow-up row: «Проще / Пример / Подробнее». Each button re-runs the
-    LLM on the cached hits with a prompt modifier — no second retrieval."""
+    """Follow-up-ряд: «Проще / Пример / Подробнее». Каждая кнопка пере-запускает
+    LLM на закэшированных hit'ах с prompt-модификатором — без второго retrieval."""
     return [
         InlineKeyboardButton(
             text=texts.tr(lang, texts.BTN_FU_SIMPLIFY),

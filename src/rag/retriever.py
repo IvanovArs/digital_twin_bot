@@ -1,10 +1,10 @@
-"""Top-k semantic search over the unified RAG index.
+"""Top-k семантический поиск по унифицированному RAG-индексу.
 
-Two-stage retrieval:
-  1. ``search()`` — bi-encoder (bge-m3) cosine over a pool of RERANK_POOL
-     candidates (cheap, wide).
-  2. ``search_rerank()`` — cross-encoder (bge-reranker-v2-m3) rescores the
-     pool, then MMR picks a diverse TOP_K for the LLM context.
+Двухстадийный retrieval:
+  1. ``search()`` — bi-encoder (bge-m3) cosine по пулу из RERANK_POOL
+     кандидатов (дёшево, широко).
+  2. ``search_rerank()`` — cross-encoder (bge-reranker-v2-m3) rescore'ит
+     пул, MMR выбирает диверсифицированный TOP_K для LLM-контекста.
 """
 
 from __future__ import annotations
@@ -53,11 +53,11 @@ def _model() -> SentenceTransformer:
 
 @lru_cache(maxsize=1)
 def load_chunks() -> list[dict[str, object]]:
-    """Single source of truth for the chunk table.
+    """Единый источник правды для chunk-таблицы.
 
-    Previously ``_load_index`` and ``hybrid._bm25`` each parsed
-    chunks.jsonl separately — ~80 MB duplicated in memory on an 15 k-chunk
-    corpus. Making one ``load_chunks()`` the shared loader drops that.
+    Раньше ``_load_index`` и ``hybrid._bm25`` парсили chunks.jsonl
+    независимо — ~80 МБ дублированного JSON в памяти на корпусе 15k. Один
+    ``load_chunks()`` как общий loader устраняет это.
     """
     if not CHUNKS_FILE.exists():
         raise FileNotFoundError(
@@ -87,10 +87,10 @@ def _load_index() -> tuple[np.ndarray, list[dict[str, object]]]:
 
 @lru_cache(maxsize=128)
 def _encode_query_cached(query: str) -> np.ndarray:
-    """Cached variant — `resolve_subject` calls `_encode_query` twice on
-    the same question (wide pass + hybrid pass). With an LRU we skip the
-    second bge-m3 forward (~50 ms each). Cache is keyed by exact query
-    text, which is fine because `expand_query` is deterministic."""
+    """Кэшированная версия — `resolve_subject` вызывает `_encode_query`
+    дважды на одном вопросе (wide-pass + hybrid-pass). LRU позволяет
+    скипнуть второй bge-m3-forward (~50 мс). Ключ — точный текст запроса,
+    что ок: `expand_query` детерминирован."""
     from src.rag.glossary import expand_query
 
     expanded = expand_query(query)
@@ -103,17 +103,17 @@ def _encode_query_cached(query: str) -> np.ndarray:
 
 
 def _encode_query(query: str) -> np.ndarray:
-    # Glossary-based expansion: short questions like «что такое X» are
-    # cosine-penalised against fat 200-token chunks. Appending the known
-    # definition of X concentrates content tokens and lifts top_score
-    # measurably without changing the index. No-op when the term is unknown.
+    # Glossary-расширение: короткие вопросы вроде «что такое X» проигрывают
+    # cosine'ом жирным 200-токеновым чанкам. Если приклеить известное
+    # определение X — content-токены концентрируются, top_score заметно
+    # растёт без перестройки индекса. No-op если термин неизвестен.
     return _encode_query_cached(query)
 
 
 def _top_indices(
     sims: np.ndarray, k: int, subject_slug: str | None, chunks: list[dict[str, object]]
 ) -> np.ndarray:
-    """Return absolute chunk indices of the top-k similarities, sorted desc."""
+    """Абсолютные индексы top-k сходств, отсортированы по убыванию."""
     if subject_slug is not None:
         mask = np.array([c["subject_slug"] == subject_slug for c in chunks], dtype=bool)
         if not mask.any():
@@ -141,13 +141,13 @@ def _hit_from_chunk(chunk: dict[str, object], score: float) -> Hit:
 
 
 def search(query: str, k: int = TOP_K, subject_slug: str | None = None) -> list[Hit]:
-    """Return top-k hits by cosine similarity, optionally restricted to a subject."""
+    """Top-k хитов по cosine similarity, опционально ограничено предметом."""
     matrix, chunks = _load_index()
     if matrix.size == 0:
         return []
 
     q = _encode_query(query)
-    sims = matrix @ q  # all vectors are L2-normalized → cosine similarity
+    sims = matrix @ q  # все вектора L2-нормированы → dot = cosine similarity
     top = _top_indices(sims, k, subject_slug, chunks)
     return [_hit_from_chunk(chunks[int(i)], float(sims[i])) for i in top]
 
@@ -158,9 +158,9 @@ def _mmr_select(
     k: int,
     lambda_: float = MMR_LAMBDA,
 ) -> list[int]:
-    """Greedy MMR: pick k indices balancing relevance and diversity.
+    """Жадный MMR: выбирает k индексов, балансируя релевантность и разнообразие.
 
-    Assumes rows of ``embeddings`` are L2-normalized so similarity = dot.
+    Предполагает, что строки ``embeddings`` L2-нормированы (similarity = dot).
     """
     n = len(relevance)
     if n == 0:
@@ -168,7 +168,7 @@ def _mmr_select(
     k = min(k, n)
     picked: list[int] = []
     remaining = set(range(n))
-    # First pick is always the most relevant — MMR becomes trivial otherwise.
+    # Первый — всегда самый релевантный, иначе MMR вырождается.
     first = int(np.argmax(relevance))
     picked.append(first)
     remaining.remove(first)
@@ -197,14 +197,14 @@ def search_rerank(
     *,
     pool: int = RERANK_POOL,
 ) -> list[Hit]:
-    """Two-stage retrieval: bi-encoder pool → cross-encoder rerank → MMR.
+    """Двухстадийный retrieval: bi-encoder pool → cross-encoder rerank → MMR.
 
-    The returned hits' ``score`` field still carries **cosine similarity** so
-    existing callers that gate on MIN_TOP_SCORE (calibrated to cosine) keep
-    working. The reranker score only drives ORDERING of the returned list.
+    Поле ``score`` возвращаемых хитов несёт **cosine similarity** — старые
+    caller'ы с MIN_TOP_SCORE-гейтом (откалиброванным под cosine) продолжают
+    работать. Реранкер влияет только на ПОРЯДОК.
     """
-    # Import locally so a retriever-only consumer (e.g. cli_search) doesn't
-    # pay the reranker cold-start if it never calls this function.
+    # Импорт локальный — retriever-only consumer (например, cli_search) не
+    # должен платить cold-start реранкера, если эта функция не зовётся.
     from src.rag.reranker import rerank as _rerank
 
     matrix, chunks = _load_index()
@@ -220,9 +220,8 @@ def search_rerank(
     pool_texts = [str(chunks[int(i)]["text"]) for i in pool_idx]
     rr_scores = np.asarray(_rerank(query, pool_texts), dtype=np.float32)
 
-    # Drop obvious noise before spending an MMR step on it. If nothing passes
-    # the gate we still return the single best chunk — the caller applies its
-    # own MIN_TOP_SCORE check on the cosine score for the final decision.
+    # Дропаем явный шум до MMR. Если никто не прошёл — возвращаем единственный
+    # лучший чанк; caller сам применит MIN_TOP_SCORE по cosine для финального решения.
     keep = rr_scores >= RERANK_MIN_SCORE
     if not keep.any():
         best = int(np.argmax(rr_scores))

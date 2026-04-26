@@ -1,13 +1,13 @@
-"""Launch `llama-server.exe` with a local GGUF for dev.
+"""Запуск `llama-server.exe` с локальным GGUF для dev.
 
-Designed for the user's laptop:
-  - RTX 3050 Ti Laptop (4 GB VRAM)
-  - 16 GB RAM
-  - llama.cpp runtime already at
-    C:\\Users\\danya\\WebstormProjects\\exeProject\\runtime\\
+Под dev-ноутбук:
+  - RTX 3050 Ti Laptop (4 ГБ VRAM)
+  - 16 ГБ RAM
+  - llama.cpp-runtime уже в каталоге, заданном через ``LLAMA_SERVER_EXE``
+    (или путь, найденный по PATH)
 
-On production VPS we instead run the `ghcr.io/ggml-org/llama.cpp:server`
-container via docker compose — no need for this script there.
+На прод-VPS вместо этого крутится контейнер ``ghcr.io/ggml-org/llama.cpp:server``
+через docker compose — этот скрипт там не нужен.
 """
 
 from __future__ import annotations
@@ -42,8 +42,8 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # mmap ON (no --no-mmap) → OS lazy-loads the GGUF from disk, no 2.5–5 GB
-    # RAM-spike at startup. batch-size 128 is plenty for --parallel 1.
+    # mmap ON (нет --no-mmap) → ОС лениво подгружает GGUF с диска, нет
+    # 2.5–5 ГБ RAM-спайка на старте. batch-size 128 хватает для --parallel 1.
     port = urlparse(settings.LLM_BASE_URL).port or 8089
     cmd = [
         str(LLAMA_SERVER_EXE_DEV),

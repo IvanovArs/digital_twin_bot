@@ -1,8 +1,8 @@
-"""Parse teacher-uploaded glossary files (CSV / YAML) into DB rows.
+"""Парсер преподавательского глоссария (CSV / YAML) → строки БД.
 
-Accepted formats:
+Поддерживаемые форматы:
 
-**CSV** (``,`` or ``;`` separator, optional header):
+**CSV** (разделитель ``,`` или ``;``, заголовок опционально):
     term,definition
     Стейкхолдер,Заинтересованное лицо, способное повлиять на организацию.
 
@@ -13,10 +13,10 @@ Accepted formats:
       - term: Эмерджентность
         definition: Свойство системы...
 
-Every upload for a subject **replaces** that subject's existing glossary
-(not an append) so teachers can iterate on the source file without
-accumulating stale rows. If a teacher wants cumulative edits they can keep
-their source of truth in git and re-upload.
+Каждая загрузка для предмета **заменяет** существующий глоссарий (не
+дозаписывает) — преподаватель может итерировать source-файл, не накапливая
+stale-строк. Если нужны кумулятивные правки — храните source-of-truth
+в git и переcкачивайте.
 """
 
 from __future__ import annotations
@@ -39,15 +39,13 @@ _GLOSS_PREFIX_EN = "📖 <b>{term}</b>\n"
 def format_glossary_body(
     entry: GlossaryTerm, lang: str, question: str | None = None
 ) -> str:
-    """Render a teacher-uploaded glossary entry for Telegram HTML.
+    """Отрендерить glossary-запись от препода в Telegram-HTML.
 
-    Term and definition are sanitised with the same whitelist as LLM
-    output — a malformed `<b>` in the uploaded YAML/CSV can't poison
-    the student message body.
+    Term и definition санитизируются тем же whitelist'ом, что и LLM-вывод —
+    кривой `<b>` из YAML/CSV не отравит тело сообщения студента.
 
-    ``question`` is shown as a ``<blockquote>`` above the definition so
-    the short-circuit keeps the same "question + answer" layout as full
-    RAG responses.
+    ``question`` — в ``<blockquote>`` сверху, чтобы short-circuit имел тот
+    же «вопрос + ответ»-layout, что и полный RAG.
     """
     import html as _html_mod
 
@@ -72,13 +70,13 @@ class GlossaryUploadResult:
 
 
 def parse_glossary_payload(payload: bytes, filename: str) -> list[tuple[str, str]]:
-    """Decode the uploaded bytes and return ``[(term, definition), …]``.
+    """Декодировать загруженные байты и вернуть ``[(term, definition), …]``.
 
-    Raises ``ValueError`` with a human-readable message when the input is
-    malformed — the handler catches it and shows the message to the teacher.
+    Бросает ``ValueError`` с человекочитаемым сообщением, когда вход кривой —
+    handler ловит и показывает текст преподавателю.
     """
     try:
-        text = payload.decode("utf-8-sig")  # utf-8-sig swallows a BOM if present
+        text = payload.decode("utf-8-sig")  # utf-8-sig съедает BOM если есть
     except UnicodeDecodeError:
         text = payload.decode("utf-8", errors="replace")
     name = filename.lower()
@@ -101,7 +99,7 @@ def parse_glossary_payload(payload: bytes, filename: str) -> list[tuple[str, str
         return rows
 
     if name.endswith(".csv"):
-        # Sniff the delimiter; default to ',' if the sample is too small.
+        # Определяем разделитель; default ',' если sample мал.
         sample = text[:2048]
         try:
             dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
@@ -114,7 +112,7 @@ def parse_glossary_payload(payload: bytes, filename: str) -> list[tuple[str, str
                 continue
             term = raw[0].strip()
             defn = raw[1].strip()
-            # Detect a header row on the first iteration (case-insensitive).
+            # На первой итерации детектим header-строку (case-insensitive).
             if i == 0 and term.lower() in {"term", "термин"} and defn.lower() in {
                 "definition",
                 "определение",
@@ -133,15 +131,14 @@ async def replace_glossary(
     subject: Subject,
     entries: list[tuple[str, str]],
 ) -> GlossaryUploadResult:
-    """Replace all glossary rows of ``subject`` with ``entries``.
+    """Заменить все glossary-строки ``subject`` на ``entries``.
 
-    Runs inside a nested SAVEPOINT so a mid-loop failure (e.g. DB
-    constraint violation on a specific entry) rolls the whole replace
-    back — the teacher never ends up with a half-populated glossary
-    where the first 40 terms are the new ones and the old 60 are gone.
-    Skipped: rows where term or definition is empty after stripping.
+    Идёт под nested SAVEPOINT — mid-loop-сбой (например, DB-constraint
+    на конкретной записи) откатывает весь replace; преподаватель никогда
+    не получит полупустой глоссарий, где первые 40 терминов — новые, а
+    предыдущие 60 уже стёрты. Skipped: строки с пустым term/definition.
     """
-    # Count what we're replacing so the teacher sees a diff-style summary.
+    # Считаем, что заменяем — чтобы препод увидел diff-style summary.
     previous_count = (
         await session.execute(
             select(GlossaryTerm).where(GlossaryTerm.subject_id == subject.id)
@@ -162,8 +159,8 @@ async def replace_glossary(
             if not t or not d:
                 skipped += 1
                 continue
-            # De-dup inside the upload — keep the first occurrence,
-            # matches YAML/CSV reading order.
+            # Dedup внутри upload'а — оставляем первое вхождение,
+            # совпадает с порядком чтения YAML/CSV.
             if t.lower() in seen:
                 skipped += 1
                 continue
@@ -190,15 +187,14 @@ async def lookup_term(
     question: str,
     subject_id: int | None,
 ) -> GlossaryTerm | None:
-    """Exact-term lookup: return a DB glossary entry if the question is a
-    known term (or «что такое <term>»). Used as a fast-path before RAG so
-    the teacher's short definition beats a full LLM answer when it fits.
+    """Точный lookup термина: вернуть строку глоссария, если вопрос — известный
+    термин (или «что такое <term>»). Используется как fast-path перед RAG —
+    короткое определение препода бьёт полный LLM-ответ, когда подходит.
 
-    SQLite's ``ilike`` is ASCII-only («Стейкхолдер» vs «СТЕЙКХОЛДЕР»
-    doesn't match), so we do the case-fold comparison in Python. We
-    narrow the SQL SELECT by subject to keep the row scan bounded to one
-    course's glossary instead of loading every term in the database — on
-    an inst-wide corpus that's the difference between <1 ms and seconds.
+    SQLite ``ilike`` ASCII-only («Стейкхолдер» vs «СТЕЙКХОЛДЕР» не матчит),
+    case-fold-сравнение делаем в Python. Скоупим SQL-SELECT по предмету,
+    чтобы row-scan ограничивался одним курсом — на корпусе всего института
+    это разница между <1 мс и секундами.
     """
     from src.bot.services.teacher_stats import _normalise_question
 

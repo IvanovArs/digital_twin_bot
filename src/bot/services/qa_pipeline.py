@@ -1,23 +1,8 @@
-"""One RAG answer pipeline, shared by both the PM flow (student.py) and the
-inline flow (inline.py).
+"""RAG pipeline shared by PM and inline flows.
 
-Stages (the LLM-rewrite-and-retry middle step was removed — bge-m3 handles
-typos well enough that an extra Qwen3 round-trip wasn't earning its 5–15 s):
-  1. Retrieval + subject routing (single bge-m3 cosine pass).
-  2. If top-1 score is below MIN_TOP_SCORE → fall through to web search.
-  3. Stream the LLM answer to the caller's message, rendering a live preview.
-  4. Persist the dialog and hand the final body back for the terminal edit.
-
-The caller injects two async callbacks:
-
-* ``set_status(text)`` — replace the in-flight status line (used during
-  retrieval, web-search, and while the stream is still coming in).
-* ``set_final(body, dialog_id)`` — the terminal edit once we have an answer.
-  The dialog_id lets the caller attach the right feedback keyboard.
-
-An optional ``typing_ping`` callback lets the PM flow also poke the
-Telegram "typing…" indicator every few seconds; the inline flow skips it
-because inline-result messages have no chat_id to send actions to.
+Stages: retrieval + routing → optional web fallback → streamed LLM answer
+→ dialog persistence. Caller injects ``set_status`` (in-flight edits) and
+``set_final`` (terminal edit + dialog_id for the keyboard).
 """
 
 from __future__ import annotations
@@ -26,7 +11,6 @@ import asyncio
 import contextlib
 import html
 import time
-from collections import defaultdict
 from collections.abc import Awaitable, Callable
 
 import structlog
@@ -35,16 +19,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot import texts
-from src.bot.services import followup_cache
+from src.bot.services import answer_cache, followup_cache
 from src.bot.services.dialog_service import save_dialog
 from src.bot.services.faq_service import format_faq_body, lookup_faq
 from src.bot.services.glossary_upload import format_glossary_body, lookup_term
-from src.bot.services.safe_html import (
-    safe_html as _safe_html,
+from src.bot.services.qa_renderer import (
+    live_preview,
+    render_textbook_body,
+    render_web_body,
 )
-from src.bot.services.safe_html import (
-    truncate_for_telegram as _truncate_for_telegram,
-)
+from src.bot.services.task_registry import tracked
 from src.bot.services.warmup import MODELS_READY
 from src.db.models import Dialog, User
 from src.rag.answer_validator import validate_answer
@@ -58,34 +42,49 @@ from src.rag.config import MIN_TOP_SCORE
 from src.rag.llm import chat_stream, strip_think
 from src.rag.pipeline import AskResult, resolve_subject
 from src.rag.prompts import build_messages, build_web_messages
-from src.rag.retriever import Hit
-from src.rag.web_search import WebHit, search_web
+from src.rag.web_search import search_web
 
 log = structlog.get_logger(__name__)
 
+# LLM refusal phrases — chain to web-fallback when matched at the start
+# of a short answer (a longer answer that mentions "fragments don't cover X"
+# as a caveat to a real answer must NOT trigger web).
+_REFUSAL_PATTERNS_RU = (
+    "в материалах курса этого прямо не нашлось",
+    "в материалах курса нет ответа",
+    "в материалах курса этого нет",
+    "фрагменты не дают ответа",
+    "фрагменты не покрывают",
+    "во фрагментах нет",
+    "в учебнике этого нет",
+    "не нашёл ответа в материалах",
+)
+_REFUSAL_PATTERNS_EN = (
+    "the course materials don't cover this",
+    "the course materials do not cover this",
+    "the fragments don't answer",
+    "the fragments do not answer",
+    "no answer in the materials",
+    "not in the textbook",
+)
+
+
+def _looks_like_refusal(answer: str, lang: str) -> bool:
+    head = answer.strip().lower()[:120]
+    patterns = _REFUSAL_PATTERNS_EN if lang == "en" else _REFUSAL_PATTERNS_RU
+    return any(p in head for p in patterns)
+
+
 SetStatus = Callable[[str], Awaitable[None]]
-# Terminal edit. Pipeline passes ``(body, dialog_id, kind)``; the handler
-# picks the keyboard based on ``kind``:
-#   "full"      — regular RAG answer (verbose: follow-ups; brief: bare)
-#   "glossary"  — teacher-curated short definition → "📖 Подробнее" button
-#   "faq"       — teacher-fixed answer → same expand button as glossary
-#   "web"       — web-fallback → regular feedback keyboard
-# Legacy two-arg callers still work because the handler adapter supplies a
-# default "full" kind.
+# (body, dialog_id, kind) — kind ∈ {"full","glossary","faq","web"} picks
+# the feedback keyboard at the call site.
 SetFinal = Callable[..., Awaitable[None]]
 TypingPing = Callable[[], Awaitable[None]]
 
-# Telegram's hard ceiling for editMessageText is 1 edit/sec/message; tighter
-# values reliably trigger 429 TelegramRetryAfter. 1.1 s leaves a small buffer
-# so a brief LLM token burst doesn't queue up retry-after sleeps.
+# Telegram cap is 1 edit/s/message; 1.1s avoids 429 bursts.
 _STREAM_EDIT_INTERVAL_S = 1.1
-# How often to poke the "typing…" indicator. Telegram auto-expires it after ~5s.
 _TYPING_INTERVAL_S = 4.0
-# Telegram's hard cap for sendMessage / editMessageText. We truncate the final
-# body just below it so a verbose LLM answer never tanks the entire turn.
-# ``_safe_html``, ``_balance_tags`` and ``_truncate_for_telegram`` now live
-# in ``src.bot.services.safe_html`` so the FAQ and glossary short-circuit
-# paths can sanitise teacher-typed content with the same rules.
+_HEARTBEAT_DELAY_S = 4.0
 
 
 async def run_qa_pipeline(
@@ -99,27 +98,71 @@ async def run_qa_pipeline(
     typing_ping: TypingPing | None = None,
     skip_short_circuit: bool = False,
 ) -> None:
-    """Retrieval → (optional rewrite + retry) → streaming LLM → final edit.
+    """Retrieval → стриминг LLM → финальный edit + сохранение диалога.
 
-    ``skip_short_circuit`` skips the FAQ/glossary fast paths — used by the
-    «📖 Развёрнутый ответ» button so tapping it on a glossary answer
-    doesn't serve the same glossary one-liner again.
+    ``skip_short_circuit`` отключает FAQ/glossary/cache fast-path'ы — нужен
+    кнопке «📖 Развёрнутый ответ», чтобы тап по glossary-ответу не вернул
+    тот же glossary-однострочник.
     """
+    with tracked():
+        await _run_qa_pipeline_inner(
+            question=question,
+            session=session,
+            user=user,
+            lang=lang,
+            set_status=set_status,
+            set_final=set_final,
+            typing_ping=typing_ping,
+            skip_short_circuit=skip_short_circuit,
+        )
+
+
+async def _run_qa_pipeline_inner(
+    *,
+    question: str,
+    session: AsyncSession,
+    user: User,
+    lang: str,
+    set_status: SetStatus,
+    set_final: SetFinal,
+    typing_ping: TypingPing | None = None,
+    skip_short_circuit: bool = False,
+) -> None:
     q_html = html.escape(question)
     t0 = time.monotonic()
 
     if typing_ping is not None:
         await typing_ping()
 
-    # Ping the placeholder so we know edit works now, not 30 s later after
-    # retrieval finishes. Also useful when the placeholder text is identical
-    # to STATUS_RETRIEVING — Telegram will swallow the duplicate silently.
+    # LRU-кеш повторных вопросов — приоритетнее даже FAQ-сокращения, потому что
+    # это нулевая работа: один dict-lookup, мгновенный edit. Скип, если юзер
+    # явно жмёт «📖 Развёрнутый ответ» (skip_short_circuit=True) — там брифкеш
+    # неуместен.
+    brief_user = bool(
+        getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
+    )
+    if not skip_short_circuit:
+        cached = answer_cache.get(
+            user_id=user.id, question=question, lang=lang, brief=brief_user
+        )
+        if cached is not None:
+            await set_final(cached.body, cached.dialog_id, cached.kind)
+            log.info(
+                "qa_answer_from_cache",
+                dialog_id=cached.dialog_id,
+                cache_age_s=round(time.monotonic() - t0, 3),
+            )
+            return
+
+    # Пинг плейсхолдера: убедимся, что edit работает уже сейчас, а не через 30с
+    # после retrieval. Если текст совпадает с STATUS_RETRIEVING — Telegram
+    # молча проглотит дубль.
     await set_status(texts.tr(lang, texts.STATUS_RETRIEVING))
 
-    # FAQ short-circuit: a teacher-curated answer for this exact question
-    # (or a very close normalised form) skips retrieval and the LLM. Fast
-    # path measured in milliseconds — no bge-m3, no Qwen3. Caller can opt
-    # out via ``skip_short_circuit`` (e.g. «📖 Развёрнутый ответ» button).
+    # FAQ-короткое замыкание: преподавательский ответ на этот вопрос
+    # (или очень близкую нормализованную форму) пропускает retrieval и LLM.
+    # Fast-path в миллисекундах — без bge-m3, без Qwen3. Caller отключает
+    # через ``skip_short_circuit`` (кнопка «📖 Развёрнутый ответ»).
     faq = None if skip_short_circuit else await lookup_faq(session, question=question, subject_id=None)
     if faq is not None:
         dialog = await save_dialog(
@@ -139,10 +182,10 @@ async def run_qa_pipeline(
         )
         return
 
-    # Glossary short-circuit: if the normalised question is exactly a known
-    # term («что такое стейкхолдер» → «стейкхолдер»), return the curated
-    # definition. Less precise than FAQ (term-level, not question-level),
-    # but catches the bulk of definitional queries students send.
+    # Glossary-короткое замыкание: если нормализованный вопрос точно совпал
+    # с известным термином («что такое стейкхолдер» → «стейкхолдер»), вернуть
+    # курированное определение. Менее точно, чем FAQ (термин, не вопрос),
+    # но ловит большую часть definitional-запросов.
     gloss = None if skip_short_circuit else await lookup_term(session, question=question, subject_id=None)
     if gloss is not None:
         dialog = await save_dialog(
@@ -162,9 +205,9 @@ async def run_qa_pipeline(
         )
         return
 
-    # If the warm-up background task hasn't finished loading the models yet,
-    # tell the user instead of blocking silently for 30–60 s (typical HF cold
-    # download). One-off state — later questions fly past this wait instantly.
+    # Если фоновый warm-up ещё не догрузил модели — сказать юзеру явно вместо
+    # тихого блока на 30–60 с (типичный HF cold-download). Одноразовое
+    # состояние — последующие вопросы пролетят мимо мгновенно.
     if not MODELS_READY.is_set():
         await set_status(texts.tr(lang, texts.STATUS_WARMING))
         try:
@@ -175,11 +218,11 @@ async def run_qa_pipeline(
             return
         await set_status(texts.tr(lang, texts.STATUS_RETRIEVING))
 
-    # Stage 1: retrieval + subject routing. If the user pinned a subject
-    # via /subject, honour it — skip the global router and scope retrieval
-    # to that subject only. If they asked a comparison («сравни X и Y»),
-    # run two retrievals — one per term — and merge so the LLM sees
-    # balanced context.
+    # Стадия 1: retrieval + subject-routing. Если юзер закрепил предмет через
+    # /subject — уважаем это, скипаем глобальный роутер и скоупим retrieval
+    # только на этот предмет. Если был comparison-запрос («сравни X и Y»),
+    # делаем два независимых retrieval — по одному на термин — и мержим,
+    # чтобы LLM увидела сбалансированный контекст.
     pinned_slug = getattr(user, "current_subject_slug", None) or None
     cmp = detect_comparison(question)
     t_stage = time.monotonic()
@@ -192,8 +235,8 @@ async def run_qa_pipeline(
                 asyncio.to_thread(resolve_subject, term_b, pinned_slug),
             )
             hits = merge_hits(hits_a, hits_b, max_total=8)
-            # Prefer a shared subject if both terms resolved into the same
-            # one; otherwise whichever side has hits.
+            # Предпочитаем общий предмет, если оба термина свелись к одному;
+            # иначе — ту сторону, у которой есть hits.
             if subj_a is not None and subj_b is not None and subj_a.slug == subj_b.slug:
                 subject = subj_a
             else:
@@ -215,8 +258,8 @@ async def run_qa_pipeline(
         elapsed_ms=int((time.monotonic() - t_stage) * 1000),
     )
 
-    # Stage 2: too weak → skip the expensive LLM-rewrite dance (5–15 s wasted
-    # on Qwen3-4B, and bge-m3 is already robust to typos). Jump to web search.
+    # Стадия 2: top-1 слишком слабый → пропускаем дорогой LLM-rewrite-цикл
+    # (5–15с зря на Qwen3-4B, bge-m3 и так робастна к опечаткам), идём в web.
     if not hits or subject is None or top_score < MIN_TOP_SCORE:
         log.info("qa_low_score_web_fallback", top_score=round(top_score, 3))
         await _web_fallback(
@@ -232,19 +275,18 @@ async def run_qa_pipeline(
         )
         return
 
-    # Stage 3: streaming answer from the textbook
+    # Стадия 3: стрим ответа по учебнику.
     assert subject is not None and hits
     subj_title = texts.subject_title(subject, lang)
-    # S2: surface what retrieval found so the user isn't staring at the same
-    # "searching" line — hit count + top cosine score + subject.
+    # Один edit перед стримом — объединяет «нашёл N + формулирую», чтобы не
+    # жечь два edit'а через 50 мс друг от друга. На сотовой раньше бывал
+    # видимый «прыжок» статуса.
     await set_status(
-        texts.tr(lang, texts.STATUS_RETRIEVAL_FOUND).format(
+        texts.tr(lang, texts.STATUS_THINKING_FOUND).format(
             n=len(hits),
-            score=f"{top_score:.2f}",
             subject=html.escape(subj_title),
         )
     )
-    await set_status(texts.tr(lang, texts.STATUS_THINKING).format(subject=html.escape(subj_title)))
 
     brief = getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
     try:
@@ -261,13 +303,12 @@ async def run_qa_pipeline(
         answer = await _stream_answer_to_ui(
             messages=messages,
             lang=lang,
-            subject_title=subj_title,
             set_status=set_status,
             typing_ping=typing_ping,
         )
     except CircuitOpenError:
-        # Breaker is open — llama-server is known-bad, fail fast with a
-        # friendly message instead of sitting on a 300 s timeout.
+        # Breaker открыт — llama-server known-bad, отвечаем быстрым отказом
+        # вместо ожидания 300с timeout'а.
         log.warning("qa_llm_circuit_open")
         await set_status(texts.tr(lang, texts.STATUS_BUSY))
         return
@@ -276,9 +317,8 @@ async def run_qa_pipeline(
         await set_status(texts.tr(lang, texts.INTERNAL_ERROR))
         return
 
-    # Belt-and-suspenders: even with a tight prompt Qwen3 sometimes invents
-    # «(Surname, 1984)» or a made-up etymology. Strip anything not grounded
-    # in the retrieved chunks before the body reaches the user.
+    # Защита: даже с жёстким промптом Qwen3 иногда выдумывает «(Surname, 1984)»
+    # или этимологию. Срезаем всё, что не подкреплено retrieved-чанками.
     answer, validation = validate_answer(answer, [h.text for h in hits])
     if validation.total:
         log.info(
@@ -288,6 +328,24 @@ async def run_qa_pipeline(
             foreign=validation.foreign_scripts_stripped,
         )
 
+    # Если модель сама сказала «фрагменты не покрывают» (мы её именно об
+    # этом просим в system-prompt), прозрачно дёргаем web-fallback вместо
+    # тупика. Детект — по короткому списку фраз; семантику не парсим.
+    if _looks_like_refusal(answer, lang):
+        log.info("qa_llm_refusal_web_fallback")
+        await _web_fallback(
+            session=session,
+            user=user,
+            question=question,
+            q_html=q_html,
+            lang=lang,
+            set_status=set_status,
+            set_final=set_final,
+            typing_ping=typing_ping,
+            t0=t0,
+        )
+        return
+
     latency_ms = int((time.monotonic() - t0) * 1000)
 
     result = AskResult(answer=answer, subject=subject, hits=hits, route=None)  # type: ignore[arg-type]
@@ -295,24 +353,16 @@ async def run_qa_pipeline(
         session, user=user, question=question, result=result, latency_ms=latency_ms
     )
 
-    if brief:
-        sources = _format_textbook_sources_inline(hits)
-        body = texts.tr(lang, texts.ANSWER_BODY_BRIEF).format(
-            answer=_safe_html(answer), sources=sources
-        )
-    else:
-        sources = _format_textbook_sources(hits, lang)
-        body = texts.tr(lang, texts.ANSWER_BODY).format(
-            q=q_html,
-            subject=html.escape(subj_title),
-            answer=_safe_html(answer),
-            sources=sources,
-        )
-    body = _truncate_for_telegram(body)
-    # Cache hits + subject so «⬇️ Проще / 💡 Пример / 📖 Подробнее» can re-run
-    # the LLM without repeating retrieval. Keyed by the new dialog_id that's
-    # embedded in the feedback keyboard. (Stored even in brief mode — the
-    # user can switch to verbose later, and the cache is cheap to carry.)
+    body = render_textbook_body(
+        q_html=q_html,
+        subject_title=subj_title,
+        answer=answer,
+        hits=hits,
+        lang=lang,
+        brief=bool(brief),
+    )
+    # Hits + subject в кэш: «⬇️ Проще / 💡 Пример / 📖 Подробнее» переезапускают
+    # LLM без повторного retrieval. Ключ — новый dialog_id из feedback-клавиатуры.
     followup_cache.store(
         dialog.id,
         question=question,
@@ -320,6 +370,16 @@ async def run_qa_pipeline(
         hits=hits,
         subject=subject,
         comparison_terms=comparison_terms,
+    )
+    # Кеш готового ответа — следующий тот же вопрос вернётся мгновенно.
+    answer_cache.store(
+        user_id=user.id,
+        question=question,
+        lang=lang,
+        brief=bool(brief),
+        body=body,
+        kind="full",
+        dialog_id=dialog.id,
     )
     await set_final(body, dialog.id, "full")
     log.info(
@@ -348,7 +408,17 @@ async def _web_fallback(
         await typing_ping()
     t_web = time.monotonic()
     try:
-        web_hits = await asyncio.to_thread(search_web, question, 5, lang=lang)
+        # Wall-clock cap: зависший DDG-backend не должен держать юзера на
+        # «🌐 ищу в интернете…» минутами. ``DDGS(timeout=8)`` уже ограничивает
+        # каждый backend-call; это общий потолок поверх ретраев
+        # (~3 backend × 8с + 2 backoff = 30с worst case).
+        web_hits = await asyncio.wait_for(
+            asyncio.to_thread(search_web, question, 5, lang=lang),
+            timeout=20.0,
+        )
+    except TimeoutError:
+        log.warning("qa_web_search_timeout")
+        web_hits = []
     except Exception:
         log.exception("qa_web_search_failed")
         web_hits = []
@@ -362,7 +432,7 @@ async def _web_fallback(
         await set_status(texts.tr(lang, texts.NO_HITS))
         return
 
-    # S7: summary — "found N sources: host1, host2, host3 — reading…"
+    # Сводка: «нашёл N источников: host1, host2, host3 — читаю…»
     unique_hosts: list[str] = []
     for h in web_hits:
         if h.host and h.host not in unique_hosts:
@@ -374,10 +444,9 @@ async def _web_fallback(
         )
     )
 
-    # S6: cycle through the first ~3 hosts so the user literally sees which
-    # domains we're pulling from. Spaced at _STREAM_EDIT_INTERVAL_S so we stay
-    # well under Telegram's 1 edit/s/message cap. The last edit bleeds into
-    # the "thinking" status below; overall we add at most ~3 edits here.
+    # Прокручиваем первые ~3 хоста, чтобы юзер видел, откуда мы тянем.
+    # Шаг — _STREAM_EDIT_INTERVAL_S, чтобы держаться ниже потолка Telegram
+    # (1 edit/s/msg). Последний edit перетекает в «формулирую» ниже.
     for h in web_hits[:3]:
         await asyncio.sleep(_STREAM_EDIT_INTERVAL_S)
         await set_status(texts.tr(lang, texts.STATUS_WEB_VISITING).format(host=html.escape(h.host)))
@@ -388,7 +457,6 @@ async def _web_fallback(
         answer = await _stream_answer_to_ui(
             messages=messages,
             lang=lang,
-            subject_title=None,
             set_status=set_status,
             typing_ping=typing_ping,
         )
@@ -424,20 +492,16 @@ async def _web_fallback(
     session.add(dialog)
     await session.flush()
 
-    brief_web = getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
-    if brief_web:
-        sources = ", ".join(html.escape(h.host or h.url[:40]) for h in web_hits)
-        body = texts.tr(lang, texts.ANSWER_BODY_BRIEF_WEB).format(
-            answer=_safe_html(answer), sources=sources
-        )
-    else:
-        sources = _format_web_sources(web_hits, lang)
-        body = texts.tr(lang, texts.ANSWER_BODY_WEB).format(
-            q=q_html,
-            answer=_safe_html(answer),
-            sources=sources,
-        )
-    body = _truncate_for_telegram(body)
+    brief_web = bool(
+        getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
+    )
+    body = render_web_body(
+        q_html=q_html,
+        answer=answer,
+        web_hits=list(web_hits),
+        lang=lang,
+        brief=brief_web,
+    )
     followup_cache.store(
         dialog.id,
         question=question,
@@ -454,12 +518,11 @@ async def _stream_answer_to_ui(
     *,
     messages: list[dict[str, str]],
     lang: str,
-    subject_title: str | None,
     set_status: SetStatus,
     typing_ping: TypingPing | None,
 ) -> str:
-    """Consume the LLM SSE stream; re-edit the status message with a live
-    running answer every ~1.2 s. Returns the full cleaned answer string.
+    """Потребляем SSE-стрим LLM; каждые ~1.2с переписываем status-сообщение
+    с живым превью ответа. Возвращает финальную очищенную строку.
     """
     accumulated: list[str] = []
     chunks_seen = 0
@@ -469,34 +532,28 @@ async def _stream_answer_to_ui(
     last_edit = stream_started
     last_typing = stream_started
 
-    # S4: prefill-gap heartbeat. Between STATUS_THINKING and the first token
-    # there can be 5-10 s of silence while llama.cpp processes the prompt.
-    # Tick "💭 Думаю… (Ns)" every ~1.2 s so the user sees something moving,
-    # then cancel the instant the first chunk arrives.
+    # Один спокойный heartbeat через 4с тишины — раньше был тикер каждые 1.1с,
+    # видимо мерцавший. Если первый токен прилетит раньше 4с (теплый кеш,
+    # короткий промпт) — юзер heartbeat'а не увидит вовсе.
     async def _heartbeat() -> None:
-        secs = 0
-        while True:
-            await asyncio.sleep(_STREAM_EDIT_INTERVAL_S)
-            secs += int(_STREAM_EDIT_INTERVAL_S)
-            try:
-                await set_status(texts.tr(lang, texts.STATUS_HEARTBEAT).format(s=secs))
-            except TelegramRetryAfter:
-                # Honour back-off but keep ticking — heartbeat is best-effort.
-                await asyncio.sleep(1.0)
-            except Exception:
-                log.debug("heartbeat_edit_failed", exc_info=True)
+        await asyncio.sleep(_HEARTBEAT_DELAY_S)
+        try:
+            await set_status(texts.tr(lang, texts.STATUS_ANALYSING))
+        except (TelegramBadRequest, TelegramRetryAfter):
+            # not modified / rate limit — норм, best-effort.
+            pass
+        except Exception:
+            log.debug("heartbeat_edit_failed", exc_info=True)
 
     hb_task: asyncio.Task[None] | None = asyncio.create_task(_heartbeat())
 
-    # Wrap the consumer in try/finally so a mid-stream exception (httpx
-    # 5xx, cancellation, etc.) still tears down the heartbeat. Otherwise
-    # it keeps editing the message every 1.1 s and overwrites the
-    # INTERNAL_ERROR set_status the outer pipeline writes on failure.
-    # Lock sampling to near-deterministic for factual answers: temperature
-    # 0.1 + top_p 0.9 + repeat_penalty 1.1 virtually eliminates the "same
-    # question, different invented author" drift we saw at the default
-    # 0.7/0.8/1.05. Chain-of-thought is off via /no_think in the system
-    # prompt anyway, so there's nothing creative we'd be clamping here.
+    # try/finally чтобы mid-stream exception (httpx 5xx, отмена) корректно
+    # завершил heartbeat — иначе он продолжит редактировать каждые 1.1с,
+    # перезаписывая INTERNAL_ERROR-статус, который пишет внешний pipeline.
+    # Sampling зафиксирован near-deterministic для факт-ответов:
+    # temp=0.1 + top_p=0.9 + repeat_penalty=1.1 убивает дрейф «одинаковый
+    # вопрос — разные выдуманные авторы», который был на дефолтных 0.7/0.8/1.05.
+    # CoT уже отключён через /no_think в system-promtp'е.
     try:
         async for piece in chat_stream(
             messages,
@@ -510,8 +567,8 @@ async def _stream_answer_to_ui(
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await hb_task
                 hb_task = None
-                # Reset the edit clock so the first real preview fires
-                # immediately, not after the heartbeat's residual interval.
+                # Сбрасываем edit-таймер, чтобы первое настоящее превью ушло
+                # мгновенно, а не через остаток heartbeat-интервала.
                 last_edit = time.monotonic() - _STREAM_EDIT_INTERVAL_S
             accumulated.append(piece)
             chunks_seen += 1
@@ -521,31 +578,27 @@ async def _stream_answer_to_ui(
                 try:
                     await typing_ping()
                 except Exception:
-                    # Typing is cosmetic — never let it kill the stream.
+                    # Typing — косметика, не должна валить стрим.
                     log.debug("typing_ping_failed", exc_info=True)
                 last_typing = now
 
-            # Fire the first edit as soon as anything arrives (so the user
-            # sees the stream actually started), then throttle the rest.
+            # Первый edit — сразу как только что-то прилетело (юзер видит,
+            # что стрим пошёл). Дальше — троттлинг.
             due_by_throttle = now - last_edit >= _STREAM_EDIT_INTERVAL_S
             if not first_edit_done or due_by_throttle:
-                preview = _live_preview(
-                    "".join(accumulated), lang=lang, subject_title=subject_title
-                )
+                preview = live_preview("".join(accumulated))
                 try:
                     await set_status(preview)
                 except TelegramRetryAfter as exc:
-                    # Honour Telegram's back-off, then keep streaming.
-                    # Sleeping bumps last_edit forward so we don't
-                    # immediately retry.
+                    # Уважаем back-off Telegram, потом продолжаем стрим.
+                    # Sleep сдвигает last_edit, чтоб не повторить сразу.
                     await asyncio.sleep(exc.retry_after + 0.1)
                     last_edit = time.monotonic()
                     continue
                 except TelegramBadRequest as exc:
-                    # "message is not modified" is an idempotency signal we
-                    # can swallow; other 400s mean the preview HTML is bad
-                    # — log and keep streaming so the final body still has
-                    # a chance.
+                    # «message is not modified» — идемпотентный сигнал,
+                    # глотаем. Другие 400 → битый preview-HTML, логируем,
+                    # стрим продолжаем (финальный body ещё спасётся).
                     if "not modified" not in str(exc).lower():
                         log.debug("stream_preview_bad_request", exc=str(exc))
                 edits_sent += 1
@@ -566,19 +619,6 @@ async def _stream_answer_to_ui(
         elapsed_s=round(time.monotonic() - stream_started, 2),
     )
     return strip_think("".join(accumulated))
-
-
-def _live_preview(partial: str, *, lang: str, subject_title: str | None) -> str:
-    """Render the in-flight partial answer as a status line (plain text)."""
-    text = partial.strip()
-    if len(text) > 800:
-        text = "…" + text[-799:]
-    prefix = ""
-    if subject_title:
-        prefix = (
-            texts.tr(lang, texts.STATUS_THINKING).format(subject=html.escape(subject_title)) + "\n"
-        )
-    return f"{prefix}{html.escape(text)} ▍"
 
 
 # ---------- follow-up re-run ----------
@@ -712,7 +752,6 @@ async def run_followup_pipeline(
         answer = await _stream_answer_to_ui(
             messages=messages,
             lang=use_lang,
-            subject_title=subject_title,
             set_status=set_status,
             typing_ping=typing_ping,
         )
@@ -750,10 +789,12 @@ async def run_followup_pipeline(
         )
         session.add(new_dialog)
         await session.flush()
-        body = texts.tr(use_lang, texts.ANSWER_BODY_WEB).format(
-            q=q_html,
-            answer=_safe_html(answer),
-            sources=_format_web_sources(ctx.web_hits, use_lang),
+        body = render_web_body(
+            q_html=q_html,
+            answer=answer,
+            web_hits=list(ctx.web_hits),
+            lang=use_lang,
+            brief=False,
         )
     else:
         result = AskResult(answer=answer, subject=ctx.subject, hits=ctx.hits, route=None)  # type: ignore[arg-type]
@@ -764,17 +805,17 @@ async def run_followup_pipeline(
             result=result,
             latency_ms=latency_ms,
         )
-        body = texts.tr(use_lang, texts.ANSWER_BODY).format(
-            q=q_html,
-            subject=html.escape(subject_title or ""),
-            answer=_safe_html(answer),
-            sources=_format_textbook_sources(ctx.hits, use_lang),
+        body = render_textbook_body(
+            q_html=q_html,
+            subject_title=subject_title or "",
+            answer=answer,
+            hits=ctx.hits,
+            lang=use_lang,
+            brief=False,
         )
 
-    body = _truncate_for_telegram(body)
-    # Chain: re-cache under the NEW dialog_id so follow-ups can stack.
-    # Preserve comparison_terms so a chain «Сравни X и Y → Проще → Пример»
-    # keeps using the side-by-side prompt.
+    # Под новым dialog_id, чтобы цепочка follow-up'ов работала. comparison_terms
+    # сохраняем — иначе «Сравни X и Y → Проще → Пример» теряет side-by-side.
     followup_cache.store(
         new_dialog.id,
         question=ctx.question,
@@ -795,38 +836,4 @@ async def run_followup_pipeline(
     return True
 
 
-# ---------- source formatting ----------
-
-
-def _format_textbook_sources(hits: list[Hit], lang: str) -> str:
-    by_book: dict[str, list[int]] = defaultdict(list)
-    for h in hits:
-        by_book[h.book].append(h.page)
-    lines: list[str] = []
-    for book, pages in by_book.items():
-        pages_str = ", ".join(str(p) for p in sorted(set(pages)))
-        lines.append(
-            texts.tr(lang, texts.SOURCES_ITEM).format(book=html.escape(book), page=pages_str)
-        )
-    return "\n".join(lines)
-
-
-def _format_textbook_sources_inline(hits: list[Hit]) -> str:
-    """Single-line version used in brief-mode answers: «book p.12, 15; book2 p.3»."""
-    by_book: dict[str, list[int]] = defaultdict(list)
-    for h in hits:
-        by_book[h.book].append(h.page)
-    parts: list[str] = []
-    for book, pages in by_book.items():
-        pages_str = ", ".join(str(p) for p in sorted(set(pages)))
-        parts.append(f"{html.escape(book)} (стр. {pages_str})")
-    return "; ".join(parts)
-
-
-def _format_web_sources(web_hits: list[WebHit], lang: str) -> str:
-    return "\n".join(
-        texts.tr(lang, texts.SOURCES_ITEM_WEB).format(
-            url=html.escape(h.url, quote=True), title=html.escape(h.title)
-        )
-        for h in web_hits
-    )
+# Источник-форматтеры теперь в src/bot/services/qa_renderer.py.

@@ -1,16 +1,14 @@
-"""In-memory cache that lets the follow-up buttons skip retrieval.
+"""In-memory кэш, чтобы follow-up-кнопки скипали retrieval.
 
-When ``run_qa_pipeline`` finishes, we stash the ``hits``/``web_hits`` plus a
-bit of routing metadata under the new ``dialog_id``. A tap on
-«Упрости / Дай пример / Подробнее» retrieves the same context and re-runs
-the LLM with a prompt modifier — no second bge-m3 pass, no second web
-search, so the follow-up lands in ~2× streaming latency instead of
-~2×retrieval+stream.
+Когда ``run_qa_pipeline`` отрабатывает, кладём ``hits``/``web_hits`` и
+немного routing-метаданных под новый ``dialog_id``. Тап по
+«Проще / Пример / Подробнее» забирает тот же контекст и переcпускает LLM
+с prompt-модификатором — без второго bge-m3-pass, без второго web-search;
+follow-up прилетает за ~2× streaming-latency вместо ~2×retrieval+stream.
 
-Cache is per-process: if the bot restarts, old dialogs lose their
-follow-up. That's fine — their buttons just return a friendly "context
-expired, ask fresh" alert. TTL matches the expected user attention span on
-a single answer, not a cross-session workflow.
+Кэш per-process: при рестарте бота старые диалоги теряют follow-up.
+Это ок — их кнопки вернут friendly «контекст устарел, спроси заново».
+TTL подобран под внимание юзера к одному ответу, не к cross-session workflow.
 """
 
 from __future__ import annotations
@@ -22,13 +20,12 @@ from src.rag.retriever import Hit
 from src.rag.web_search import WebHit
 from src.subjects import Subject
 
-# 24 h TTL: a student clicking «Проще» on yesterday's answer should still
-# work, not hit «контекст устарел». When the cache does miss (or the bot
-# restarted), the pipeline falls back to reloading the original question
-# from the Dialog row and re-running retrieval. See
-# ``qa_pipeline.run_followup_pipeline`` for the fallback path.
+# TTL 24 ч: тап «Проще» по вчерашнему ответу должен ещё работать, а не
+# падать в «контекст устарел». На промахе кэша (или после рестарта бота)
+# пайплайн перезагружает оригинальный вопрос из Dialog'а и заново делает
+# retrieval. См. fallback-путь в ``qa_pipeline.run_followup_pipeline``.
 _TTL_SECONDS = 24 * 60 * 60
-# Bumped along with TTL so a day's worth of active students still fits.
+# Поднят вместе с TTL — суточная активность студентов помещается.
 _MAX_ENTRIES = 5_000
 
 
@@ -40,10 +37,10 @@ class FollowUpContext:
     subject: Subject | None
     web_hits: list[WebHit] | None
     created_at: float
-    # Set when the original question was a «сравни X и Y» — follow-ups
-    # need this so «Проще» on a comparison answer re-runs the comparison
-    # prompt instead of a flat single-term build (which would otherwise
-    # produce «определение X, потом определение Y» prose).
+    # Заполняется, если исходный вопрос был «сравни X и Y» — follow-up'ам
+    # нужно это, чтобы «Проще» на comparison-ответе re-run'ил comparison-
+    # промпт, а не плоский single-term build (который иначе вернёт
+    # «определение X, потом определение Y»-прозой).
     comparison_terms: tuple[str, str] | None = None
 
     @property
@@ -58,7 +55,7 @@ def _evict_stale(now: float) -> None:
     stale = [did for did, ctx in _CACHE.items() if now - ctx.created_at > _TTL_SECONDS]
     for did in stale:
         _CACHE.pop(did, None)
-    # If still over the cap, drop the oldest by created_at.
+    # Если всё ещё над лимитом — дропаем старейших по created_at.
     if len(_CACHE) > _MAX_ENTRIES:
         overflow = len(_CACHE) - _MAX_ENTRIES
         for did in sorted(_CACHE, key=lambda d: _CACHE[d].created_at)[:overflow]:
@@ -99,5 +96,5 @@ def get(dialog_id: int) -> FollowUpContext | None:
 
 
 def clear() -> None:
-    """Test hook — wipes the in-memory state between parametrised runs."""
+    """Тестовый хук — стирает in-memory state между параметризованными прогонами."""
     _CACHE.clear()
