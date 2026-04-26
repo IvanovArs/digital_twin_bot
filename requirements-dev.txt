@@ -1,17 +1,19 @@
 # =====================================================================
-# digital_twin_bot — development / CI dependencies
-# Install with: pip install -r requirements.txt -r requirements-dev.txt
+# digital_twin_bot — dev / CI зависимости
+# Установка: pip install -r requirements.txt -r requirements-dev.txt
 # =====================================================================
 
-# --- Linters & type checkers ---
+# --- Линтеры и type-чекеры ---
 ruff==0.8.6
 mypy==1.14.1
 bandit==1.8.0
+# Поиск мёртвого кода — используется при cleanup-аудитах (в CI не обязателен).
+vulture==2.16
 
-# --- Testing ---
+# --- Тесты ---
 pytest==8.3.4
 pytest-asyncio==0.25.2
 pytest-cov==6.0.0
 
-# --- Type stubs ---
+# --- Type-stub'ы ---
 types-PyYAML==6.0.12.20240917

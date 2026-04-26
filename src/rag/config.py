@@ -1,8 +1,8 @@
-"""Paths and RAG constants.
+"""Пути и RAG-константы.
 
-For env-driven settings (LLM base URL, model, etc.) see `src/config.py` (Phase 3).
-This module keeps the path layout stable so that ingest/retriever/router can
-import it without touching pydantic-settings.
+Env-driven-настройки (LLM base URL, model и т.п.) — в `src/config.py`.
+Этот модуль держит layout путей стабильным, чтобы ingest/retriever/router
+импортировались без pydantic-settings.
 """
 
 from __future__ import annotations
@@ -11,15 +11,24 @@ import os
 import shutil
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).resolve().parents[2]
+
+# Грузим .env здесь, ДО первого ``os.environ.get(...)`` ниже. pydantic-settings
+# в src/config.py делает то же самое, но позже — а ``_resolve_llama_server_exe``
+# срабатывает на module-import. Без этого ``LLAMA_SERVER_EXE`` из .env
+# виден только когда юзер задаёт его вручную ($env:... в shell).
+# ``override=False`` — не перезатираем переменные, явно заданные в системе.
+load_dotenv(ROOT / ".env", override=False)
 
 
 def _resolve_llama_server_exe() -> Path:
-    """Locate the dev llama-server binary.
+    """Найти dev-бинарь llama-server.
 
-    Order: ``LLAMA_SERVER_EXE`` env var → first ``llama-server`` on PATH →
-    sentinel ``Path("llama-server")`` (so missing-binary errors surface at the
-    spawn site with a helpful message, not at import time).
+    Порядок: env ``LLAMA_SERVER_EXE`` → первый ``llama-server`` в PATH →
+    sentinel ``Path("llama-server")`` (ошибка «нет бинаря» всплывёт в момент
+    spawn'а с человекочитаемым сообщением, не на module-import'е).
     """
     env = os.environ.get("LLAMA_SERVER_EXE")
     if env:

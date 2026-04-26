@@ -382,6 +382,28 @@ BTN_EXPAND_SHORT: Tr = {
     "ru": "📖 Развёрнутый ответ",
     "en": "📖 Full answer",
 }
+BTN_ASK_SUGGESTED: Tr = {
+    "ru": "🔄 Да, про «{term}»",
+    "en": "🔄 Yes, ask about «{term}»",
+}
+DISAMBIG_BODY: Tr = {
+    "ru": (
+        "<blockquote>{q}</blockquote>\n\n"
+        "В материалах курса «<b>{subject}</b>» нет точного термина "
+        "«<b>{q_term}</b>».\n\n"
+        "Похожий термин в учебнике: <b>«{suggested}»</b>. "
+        "Возможно, вы имели в виду его?\n\n"
+        "Или просто переcпросите точнее."
+    ),
+    "en": (
+        "<blockquote>{q}</blockquote>\n\n"
+        "The «<b>{subject}</b>» course materials don't have the exact term "
+        "«<b>{q_term}</b>».\n\n"
+        "Closest term in the textbook: <b>«{suggested}»</b>. "
+        "Did you mean that?\n\n"
+        "Or just re-ask more precisely."
+    ),
+}
 FU_PLACEHOLDER: Tr = {
     "ru": "🔄 Формулирую по-другому…",
     "en": "🔄 Reformulating…",

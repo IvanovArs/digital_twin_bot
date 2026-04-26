@@ -109,6 +109,28 @@ def feedback_inline(dialog_id: int, lang: str) -> InlineKeyboardMarkup:
     )
 
 
+def disambig_keyboard(suggested_term: str, lang: str) -> InlineKeyboardMarkup:
+    """Клавиатура для disambig-сообщения «не нашёл "X", есть похожий "Y"».
+
+    Кнопка ``at:<term>`` (ask term) триггерит handler, который перезапускает
+    pipeline уже с найденным близким термином — юзер не печатает заново.
+    Term ужимаем до 50 символов, чтобы payload помещался в 64-байтный
+    callback_data-лимит Telegram.
+    """
+    safe = suggested_term.strip()[:50]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=texts.tr(lang, texts.BTN_ASK_SUGGESTED).format(term=safe),
+                    callback_data=f"at:{safe}",
+                    style="primary",
+                ),
+            ],
+        ],
+    )
+
+
 def processing_keyboard(rid: str, lang: str) -> InlineKeyboardMarkup:
     """Attached to the placeholder while ``run_qa_pipeline`` is running.
 
@@ -142,7 +164,14 @@ def _ask_another_inline_button(lang: str) -> InlineKeyboardButton:
 
 
 def feedback_bare(dialog_id: int, lang: str) -> InlineKeyboardMarkup:
-    """Inline-sent answer keyboard: 👍/👎 + «Задать ещё вопрос»."""
+    """Inline-sent answer keyboard: 👍/👎 + follow-ups + «Задать ещё вопрос».
+
+    Раньше тут был только feedback-ряд + ask-another, чтобы клавиатура
+    влезла в любой чат. Сейчас follow-up'ы умеют редактировать inline-
+    сообщение через ``inline_message_id`` (см. ``on_followup``), поэтому
+    добавляем тот же ряд «Проще / Пример / Подробнее» что и в PM —
+    студент в группе получает то же поведение, что и в личке.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -157,6 +186,7 @@ def feedback_bare(dialog_id: int, lang: str) -> InlineKeyboardMarkup:
                     style="danger",
                 ),
             ],
+            _followup_row(dialog_id, lang),
             [_ask_another_inline_button(lang)],
         ],
     )

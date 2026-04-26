@@ -276,11 +276,20 @@ async def on_chosen_inline_result(
     lang: str,
 ) -> None:
     inline_message_id = chosen.inline_message_id
+    # Telegram отдаёт `query` = исходный текст inline_query — для sample-кнопок
+    # на пустом query он тоже пустой, и автоматический запуск глох (юзер был
+    # вынужден жать «Получить ответ»). Падаем на _QUESTION_CACHE через
+    # result_id (= qid плейсхолдера), чтобы поднять текст вопроса.
     question = (chosen.query or "").strip()
+    if not question:
+        cached = _cache_get((chosen.result_id or "").strip())
+        if cached:
+            question = cached.strip()
     log.info(
         "chosen_inline_result_received",
         has_inline_id=bool(inline_message_id),
         question_len=len(question),
+        recovered_from_cache=bool(question and not (chosen.query or "").strip()),
     )
     if not question:
         return

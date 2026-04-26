@@ -20,7 +20,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot import texts
-from src.bot.keyboards import ask_only_inline, feedback_inline, feedback_short_answer
+from src.bot.keyboards import (
+    ask_only_inline,
+    feedback_bare,
+    feedback_brief,
+    feedback_inline,
+    feedback_short_answer,
+)
 from src.bot.services import processing_state
 from src.bot.services.dialog_service import record_feedback
 from src.bot.services.qa_pipeline import run_followup_pipeline, run_qa_pipeline
@@ -135,8 +141,10 @@ async def on_followup(
     user: User,
     lang: str,
 ) -> None:
-    """Тап по follow-up на PM-ответе. Шлём новый плейсхолдер ниже оригинала,
-    стрим в него переформулированный ответ, цепляем свежую feedback+followup-клаву."""
+    """Тап по follow-up на PM-ответе. Редактируем то же сообщение в месте —
+    лента не засоряется новыми «карточками» на каждый «Проще / Пример /
+    Подробнее». Если пользователь хочет историю переформулировок — она
+    остаётся в /history (каждый follow-up создаёт новый Dialog в БД)."""
     data = callback.data or ""
     parts = data.split(":", 2)
     if len(parts) != 3:
@@ -156,23 +164,60 @@ async def on_followup(
     await callback.answer()
 
     msg = callback.message
-    if msg is None or msg.bot is None or msg.chat is None:
-        # Inline-message follow-up'ы пока не поддержаны — отвечаем тихо.
+    inline_message_id = callback.inline_message_id
+    bot = callback.bot
+    # Поддерживаем оба пути: PM/группа (есть msg) и inline-сообщение
+    # (есть только inline_message_id, msg=None). Без этого тапы по
+    # «Проще/Пример/Подробнее» в inline-ответах молча уходили в никуда.
+    if (msg is None or msg.bot is None or msg.chat is None) and not inline_message_id:
         return
+    if bot is None and msg is not None:
+        bot = msg.bot
 
-    placeholder = await msg.answer(texts.tr(lang, texts.FU_PLACEHOLDER), parse_mode="HTML")
-    last_sent = {"text": placeholder.text or ""}
+    # Подтаскиваем исходный вопрос, чтобы держать blockquote сверху и во
+    # время стрима. Без этого preview перетирает «<blockquote>q</blockquote>»
+    # и формат сообщения «прыгает» между статусом и финалом.
+    parent = (
+        await session.execute(
+            select(Dialog).where(Dialog.id == dialog_id, Dialog.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    raw_q = (parent.question or "") if parent is not None else ""
+    raw_q = re.sub(r"^\[(?:simplify|example|deepen)\]\s*", "", raw_q)
+    # Срезаем хвост со status-сообщением (старый баг — мог попасть в saved
+    # question), чтобы blockquote сверху не показывал «вопрос ⌛ Ищу...».
+    raw_q = re.sub(r"\s*[⌛⏳]\s.*$|\s*\n+.*$", "", raw_q, flags=re.DOTALL).strip()
+    q_html = html.escape(raw_q) if raw_q else ""
+    q_with_status = texts.tr(lang, texts.Q_WITH_STATUS)
+
+    last_sent: dict[str, str] = {"text": (msg.text if msg is not None else "") or ""}
 
     async def _edit(text: str, reply_markup=None) -> None:  # type: ignore[no-untyped-def]
         if text == last_sent["text"]:
             return
         try:
-            await placeholder.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+            if inline_message_id is not None and bot is not None:
+                await bot.edit_message_text(
+                    inline_message_id=inline_message_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                )
+            else:
+                await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)  # type: ignore[union-attr]
             last_sent["text"] = text
         except TelegramRetryAfter as exc:
             await asyncio.sleep(exc.retry_after + 0.1)
             with contextlib.suppress(Exception):
-                await placeholder.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+                if inline_message_id is not None and bot is not None:
+                    await bot.edit_message_text(
+                        inline_message_id=inline_message_id,
+                        text=text,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup,
+                    )
+                else:
+                    await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)  # type: ignore[union-attr]
                 last_sent["text"] = text
         except TelegramBadRequest as exc:
             if "not modified" not in str(exc).lower():
@@ -181,11 +226,24 @@ async def on_followup(
             log.warning("followup_edit_failed", exc_type=type(exc).__name__, exc=str(exc))
 
     async def set_status(text: str) -> None:
-        await _edit(text)
+        # Держим вопрос blockquote'ом сверху и во время стрима — финальный
+        # `render_textbook_body` использует тот же шаблон Q_WITH_STATUS.
+        if q_html:
+            await _edit(q_with_status.format(q=q_html, status=text))
+        else:
+            await _edit(text)
 
     async def set_final(body: str, new_dialog_id: int, kind: str = "full") -> None:
         del kind  # follow-up всегда получает полную verbose-клавиатуру
-        await _edit(body, reply_markup=feedback_inline(new_dialog_id, lang))
+        # Inline-mode-ответам нужна inline-friendly клавиатура с
+        # switch_inline_query вместо callback_data="menu:ask" (который не
+        # работает вне нашего PM).
+        kb = (
+            feedback_bare(new_dialog_id, lang)
+            if inline_message_id is not None
+            else feedback_inline(new_dialog_id, lang)
+        )
+        await _edit(body, reply_markup=kb)
 
     ok = await run_followup_pipeline(
         dialog_id=dialog_id,
@@ -198,7 +256,81 @@ async def on_followup(
     )
     if not ok:
         with contextlib.suppress(Exception):
-            await placeholder.edit_text(texts.tr(lang, texts.FU_EXPIRED))
+            await msg.edit_text(texts.tr(lang, texts.FU_EXPIRED))
+
+
+@router.callback_query(F.data.startswith("at:"))
+async def on_ask_term(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    user: User,
+    lang: str,
+) -> None:
+    """Тап по «🔄 Да, про "Y"» в disambig-карточке.
+
+    Перезапускаем pipeline уже с правильным термином, edit'им то же
+    сообщение в месте — чтобы лента не засорялась.
+    """
+    data = callback.data or ""
+    term = data[len("at:"):].strip()
+    if not term or len(term) > 80:
+        await callback.answer()
+        return
+    await callback.answer()
+    msg = callback.message
+    if msg is None or msg.bot is None:
+        return
+
+    # Перепакуем как «что такое <term>» — pipeline пройдёт обычным путём
+    # с lexical-gate (который уже не сработает, термин в глоссарии).
+    rephrased = f"что такое {term}"
+    q_html = html.escape(rephrased)
+    q_with_status = texts.tr(lang, texts.Q_WITH_STATUS)
+    last_sent: dict[str, str] = {"text": msg.text or ""}
+
+    async def _edit(text: str, reply_markup=None) -> None:  # type: ignore[no-untyped-def]
+        if text == last_sent["text"]:
+            return
+        try:
+            await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+            last_sent["text"] = text
+        except TelegramRetryAfter as exc:
+            await asyncio.sleep(exc.retry_after + 0.1)
+            with contextlib.suppress(Exception):
+                await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+                last_sent["text"] = text
+        except TelegramBadRequest as exc:
+            if "not modified" not in str(exc).lower():
+                log.warning("ask_term_edit_bad_request", exc=str(exc))
+        except Exception as exc:
+            log.warning("ask_term_edit_failed", exc_type=type(exc).__name__, exc=str(exc))
+
+    async def set_status(text: str) -> None:
+        await _edit(q_with_status.format(q=q_html, status=text))
+
+    async def set_final(body: str, new_dialog_id: int, kind: str = "full") -> None:
+        if kind in ("glossary", "faq"):
+            kb = feedback_short_answer(new_dialog_id, lang)
+        elif kind == "disambig":
+            # На fuzzy-suggested-термин снова не нашлось — крайне редкий путь;
+            # оставим в feedback_brief, чтобы юзер мог как минимум 👎 ткнуть.
+            kb = feedback_brief(new_dialog_id, lang)
+        else:
+            is_brief = (
+                getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
+            )
+            kb = feedback_brief(new_dialog_id, lang) if is_brief else feedback_inline(new_dialog_id, lang)
+        await _edit(body, reply_markup=kb)
+
+    await run_qa_pipeline(
+        question=rephrased,
+        session=session,
+        user=user,
+        lang=lang,
+        set_status=set_status,
+        set_final=set_final,
+        skip_short_circuit=True,  # disambig — это уже «не первый» запрос
+    )
 
 
 @router.callback_query(F.data.startswith("fb:"))

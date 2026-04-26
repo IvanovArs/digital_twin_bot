@@ -1,48 +1,56 @@
 # =====================================================================
-# digital_twin_bot — runtime dependencies
+# digital_twin_bot — runtime-зависимости
 # Python: 3.12+
 # =====================================================================
 
-# --- Telegram bot framework ---
+# --- Telegram-бот ---
 aiogram==3.27.0
 
-# --- Config & validation ---
+# --- HTTP-сервер для healthz/readyz (src/bot/web.py: build_app/AppRunner/TCPSite).
+# aiogram сам тащит aiohttp как dependency, но мы используем его напрямую —
+# фиксируем явно, чтобы major-bump aiogram не сломал нас молча.
+aiohttp>=3.10,<4
+
+# --- Конфиг и валидация ---
 pydantic==2.10.4
 pydantic-settings==2.7.1
 PyYAML==6.0.2
 
-# --- Database ---
-# SQLite (aiosqlite) is enough for local dev — no external services.
-# Prod uses PostgreSQL via docker compose (asyncpg + psycopg).
+# --- БД ---
+# SQLite (aiosqlite) — для локального dev'а без внешних сервисов.
+# Прод — PostgreSQL через docker compose (asyncpg + psycopg).
 SQLAlchemy==2.0.36
 aiosqlite==0.20.0
 asyncpg==0.30.0
 psycopg[binary]==3.2.3
 alembic==1.14.0
 
-# --- Observability & resilience ---
+# --- Observability и устойчивость ---
 structlog==24.4.0
 tenacity==9.0.0
 
-# --- HTTP client (to llama.cpp OpenAI-compatible API) ---
+# --- HTTP-клиент к OpenAI-совместимому llama.cpp ---
 httpx==0.27.2
 
-# --- Web search fallback (DuckDuckGo, no API key) ---
+# --- Web-search fallback (DuckDuckGo, без API-key) ---
 duckduckgo-search==6.3.7
-# lxml is needed for the HTML and lite backends (the JSON API backend is
-# aggressively rate-limited — we fall back through html → lite → api).
+# lxml нужен HTML- и lite-бэкендам DDG (JSON-API rate-limit'ится агрессивно —
+# мы падаем через html → lite → api).
 lxml>=5.0,<6
 
-# --- RAG pipeline ---
+# --- RAG-пайплайн ---
 pymupdf==1.24.13
 sentence-transformers==3.3.1
+# torch подтягивается через sentence-transformers, но src/rag/reranker.py
+# напрямую проверяет torch.cuda.is_available() — фиксируем явно.
+torch>=2.2,<3
 numpy>=1.26,<3
 tqdm==4.67.1
-# .docx ingest for teacher-uploaded materials (lecture notes, hand-outs).
+# .docx-ingest для преподавательских материалов (lecture notes, hand-out'ы).
 python-docx==1.2.0
-# BM25 lexical retrieval for the hybrid (BM25 + dense) first stage. Catches
-# exact-token matches (surnames, years, acronyms) that cosine normalises away.
+# BM25-лексический retrieval для hybrid (BM25 + dense) первой стадии.
+# Ловит точные токены (фамилии, годы, акронимы), которые cosine нормализует прочь.
 rank-bm25==0.2.2
 
-# --- Utilities ---
+# --- Утилиты ---
 python-dotenv==1.0.1

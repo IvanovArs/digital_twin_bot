@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import html
+import re
 import time
 from collections.abc import Awaitable, Callable
 
@@ -73,6 +74,103 @@ def _looks_like_refusal(answer: str, lang: str) -> bool:
     head = answer.strip().lower()[:120]
     patterns = _REFUSAL_PATTERNS_EN if lang == "en" else _REFUSAL_PATTERNS_RU
     return any(p in head for p in patterns)
+
+
+# Definitional-pattern: «что такое X», «определение X», «расскажи про X»,
+# «X?» (одно слово). Если поймали — ``_extract_lookup_term`` возвращает X
+# для проверки, реально ли X встречается во фрагментах. Иначе bge-m3
+# матчит фонетически близкое («плейсхолдер» → «стейкхолдер») и LLM подменяет
+# определение, не заметив подмены термина.
+_DEFINITIONAL_RE = re.compile(
+    r"^(?:что\s+такое|что\s+есть|определение|расскажи\s+(?:про|о)|объясни|"
+    r"что\s+значит|кто\s+такой|кто\s+такая|кто\s+такие|"
+    r"what\s+is|what\s+are|define|explain)\s+(.+?)$",
+    flags=re.IGNORECASE,
+)
+_TRAILING_PUNCT = re.compile(r"[?.!,;:—\s]+$")
+_SINGLE_WORD_RE = re.compile(r"^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-]{2,}$")
+
+
+def _extract_lookup_term(question: str) -> str | None:
+    """Если вопрос вида «что такое X» (или одно слово-термин) — вернуть X.
+
+    Иначе ``None`` — значит вопрос не lookup, lexical-gate не должен
+    срабатывать (например, «как настроить SWOT-анализ» — про процесс,
+    а не про слово).
+    """
+    q = (question or "").strip()
+    q = _TRAILING_PUNCT.sub("", q)
+    if not q:
+        return None
+    m = _DEFINITIONAL_RE.match(q)
+    if m:
+        term = _TRAILING_PUNCT.sub("", m.group(1).strip())
+        return term or None
+    if _SINGLE_WORD_RE.match(q):
+        return q
+    return None
+
+
+def _term_present_in_hits(term: str, hits: list) -> bool:  # type: ignore[type-arg]
+    """True если стем хоть одного слова термина встречается в каком-нибудь
+    chunk-тексте. Стем общий с BM25 — «плейсхолдеру» матчится «плейсхолдер»,
+    но НЕ «стейкхолдер» (разные стеммы).
+    """
+    from src.rag.hybrid import _stem, _tokenise
+
+    term_stems = {_stem(t) for t in _tokenise(term) if len(t) >= 4}
+    if not term_stems:
+        return True  # слишком короткий термин (1-3 буквы) — не блокируем
+    for h in hits:
+        chunk_stems = {_stem(t) for t in _tokenise(getattr(h, "text", "") or "")}
+        if term_stems & chunk_stems:
+            return True
+    return False
+
+
+async def _find_fuzzy_term_in_corpus(
+    session: AsyncSession, term: str, subject_id: int | None, *, threshold: float = 0.65
+) -> str | None:
+    """Найти близкий термин в глоссарии текущего предмета через difflib.
+
+    Это страховка для типового кейса: студент помнит звучание, но забыл
+    точное написание («плейсхолдер» при искомом «стейкхолдер», или наоборот).
+    Если ratio ≥ ``threshold`` — предлагаем кнопкой «🔄 Да, про "Y"». Если
+    глоссарий пуст или ничего не близко — возвращаем None, caller уйдёт в
+    web-fallback. Threshold 0.65 эмпирический: «плейсхолдер»-«стейкхолдер»
+    ≈ 0.83, «эмерджентность»-«эмерджентный» ≈ 0.95.
+    """
+    if subject_id is None:
+        return None
+    from difflib import SequenceMatcher
+
+    from sqlalchemy import select as _select
+
+    from src.db.models import GlossaryTerm
+
+    rows = list(
+        (
+            await session.execute(
+                _select(GlossaryTerm.term).where(GlossaryTerm.subject_id == subject_id)
+            )
+        ).scalars()
+    )
+    if not rows:
+        return None
+    q = term.lower().strip()
+    best: str | None = None
+    best_ratio = threshold
+    for candidate in rows:
+        c = candidate.lower().strip()
+        if c == q:
+            return candidate  # точное совпадение — хотя сюда мы попадаем только
+            # если lexical-gate не нашёл стем; глоссарий-формы совпадают,
+            # значит чанки реально не цитируют термин — отдаём как fuzzy.
+        ratio = SequenceMatcher(None, q, c).ratio()
+        if ratio > best_ratio:
+            best = candidate
+            best_ratio = ratio
+    return best
 
 
 SetStatus = Callable[[str], Awaitable[None]]
@@ -274,6 +372,76 @@ async def _run_qa_pipeline_inner(
             t0=t0,
         )
         return
+
+    # Lexical-gate для definitional-вопросов: если юзер спросил «что такое X»
+    # (или просто «X»), а ни в одном из retrieved-чанков стем X не встречается —
+    # это типовая фонетическая подмена (плейсхолдер vs стейкхолдер). LLM в
+    # таком случае уверенно перефразирует «соседнее» определение под чужой
+    # термин. Уходим в web вместо галлюцинации.
+    if comparison_terms is None:
+        # Локальная переменная не должна шейдить импорт ``lookup_term`` из
+        # glossary_upload — Python видел бы её как local во всей функции и
+        # ловил бы UnboundLocalError на FAQ-fast-path выше.
+        _q_term = _extract_lookup_term(question)
+        if _q_term and not _term_present_in_hits(_q_term, hits):
+            # Студент мог помнить звучание, но забыть написание. Прежде чем
+            # дёрнуть web — проверим fuzzy-близость в glossary текущего
+            # предмета. Если есть похожий термин — покажем disambig-карточку
+            # с кнопкой «🔄 Да, про "Y"» (один тап и pipeline стартует заново
+            # с правильным словом).
+            subj_id = getattr(subject, "id", None)
+            fuzzy = await _find_fuzzy_term_in_corpus(session, _q_term, subj_id)
+            if fuzzy:
+                log.info("qa_lexical_gate_fuzzy_suggest", q=_q_term, suggested=fuzzy)
+                disambig_body = texts.tr(lang, texts.DISAMBIG_BODY).format(
+                    q=q_html,
+                    subject=html.escape(texts.subject_title(subject, lang)),
+                    q_term=html.escape(_q_term),
+                    suggested=html.escape(fuzzy),
+                )
+                # Сохраняем в Dialog как «refused-with-suggestion» — для
+                # коректного /history и /ref.
+                refused_dialog = await save_dialog(
+                    session,
+                    user=user,
+                    question=question,
+                    result=AskResult(
+                        answer=f"[no-match: suggested «{fuzzy}»]",
+                        subject=subject,
+                        hits=[],
+                        route=None,
+                    ),  # type: ignore[arg-type]
+                    latency_ms=int((time.monotonic() - t0) * 1000),
+                )
+                await set_final(disambig_body, refused_dialog.id, "disambig")
+                # Сохраняем suggestion в short-lived state, чтобы кнопка
+                # `at:<term>` могла поднять ровно его, не доверяя
+                # client-controlled callback_data слепо.
+                followup_cache.store(
+                    refused_dialog.id,
+                    question=fuzzy,  # уже корректный термин
+                    lang=lang,
+                    hits=[],
+                    subject=subject,
+                )
+                return
+            log.info(
+                "qa_lexical_gate_web_fallback",
+                term=_q_term,
+                top_score=round(top_score, 3),
+            )
+            await _web_fallback(
+                session=session,
+                user=user,
+                question=question,
+                q_html=q_html,
+                lang=lang,
+                set_status=set_status,
+                set_final=set_final,
+                typing_ping=typing_ping,
+                t0=t0,
+            )
+            return
 
     # Стадия 3: стрим ответа по учебнику.
     assert subject is not None and hits
@@ -520,6 +688,7 @@ async def _stream_answer_to_ui(
     lang: str,
     set_status: SetStatus,
     typing_ping: TypingPing | None,
+    max_tokens: int | None = None,
 ) -> str:
     """Потребляем SSE-стрим LLM; каждые ~1.2с переписываем status-сообщение
     с живым превью ответа. Возвращает финальную очищенную строку.
@@ -561,6 +730,7 @@ async def _stream_answer_to_ui(
             top_p=0.9,
             top_k=40,
             repeat_penalty=1.1,
+            max_tokens=max_tokens,
         ):
             if hb_task is not None:
                 hb_task.cancel()
@@ -647,10 +817,18 @@ async def _reload_followup_from_dialog(
     # Strip the `[simplify] `/`[example] `/`[deepen] ` prefix that was
     # prepended when a follow-up was saved — we want the original student
     # question for a fresh retrieval, not the tagged variant.
+    # Дополнительно срезаем мусор из status-сообщения, который мог попасть
+    # в saved-question у старых записей (баг до 2026-04-27).
     import re as _re
 
-    q = _re.sub(r"^\[(simplify|example|deepen)\]\s*", "", dialog.question or "", flags=_re.IGNORECASE)
-    if not q.strip():
+    q = _re.sub(
+        r"^\[(simplify|example|deepen)\]\s*",
+        "",
+        dialog.question or "",
+        flags=_re.IGNORECASE,
+    )
+    q = _re.sub(r"\s*[⌛⏳]\s.*$|\s*\n+.*$", "", q, flags=_re.DOTALL).strip()
+    if not q:
         return None
 
     # Detect whether this was a comparison and reproduce the same split.
@@ -748,12 +926,19 @@ async def run_followup_pipeline(
             texts.subject_title(ctx.subject, use_lang) if ctx.subject is not None else None
         )
 
+    # Дефолт LLM_MAX_TOKENS=220 рассчитан на короткий verbose-ответ;
+    # для «Подробнее» / «Пример» этого не хватает и юзер видит +1 предложение
+    # вместо реального разворота. Дотягиваем бюджет под намерение модификатора.
+    _FU_TOKEN_BUDGET = {"simplify": 260, "example": 480, "deepen": 700}
+    fu_max_tokens = _FU_TOKEN_BUDGET.get(modifier)
+
     try:
         answer = await _stream_answer_to_ui(
             messages=messages,
             lang=use_lang,
             set_status=set_status,
             typing_ping=typing_ping,
+            max_tokens=fu_max_tokens,
         )
     except Exception:
         log.exception("qa_followup_llm_failed")

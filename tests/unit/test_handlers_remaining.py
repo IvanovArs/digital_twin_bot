@@ -182,17 +182,17 @@ async def test_followup_returns_expired_message(session, monkeypatch) -> None:
     cb.message.bot = MagicMock()
     cb.message.chat = MagicMock()
     cb.message.chat.id = 1
-    placeholder = MagicMock()
-    placeholder.text = "..."
-    placeholder.edit_text = AsyncMock()
-    cb.message.answer = AsyncMock(return_value=placeholder)
+    cb.message.text = "старый ответ бота"
+    cb.message.edit_text = AsyncMock()
 
     async def fake_followup(**kw):  # type: ignore[no-untyped-def]
         return False  # context expired
 
     monkeypatch.setattr(fu_mod, "run_followup_pipeline", fake_followup)
     await on_followup(cb, session, user, "ru")
-    placeholder.edit_text.assert_awaited()
+    # Теперь follow-up edit-in-place — пишем на ту же cb.message, не на отдельный
+    # placeholder.
+    cb.message.edit_text.assert_awaited()
 
 
 # ---------- on_expand_answer happy path ----------

@@ -26,6 +26,7 @@ from src.bot.handlers.student.entry import (  # noqa: F401
     on_subject_command,
 )
 from src.bot.handlers.student.followup import (  # noqa: F401
+    on_ask_term,
     on_expand_answer,
     on_feedback,
     on_followup,

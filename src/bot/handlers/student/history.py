@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import html
+import re
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -63,6 +64,21 @@ def _history_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+_FU_PREFIX_RE = re.compile(r"^\[(?:simplify|example|deepen)\]\s*", re.IGNORECASE)
+# Stale-данные могут содержать хвост статус-сообщения, попавший в saved
+# question (старый баг). Срезаем всё начиная с blockquote-перевода или
+# песочных часов «⌛», чтобы /history не показывал «вопрос ⌛ Ищу...».
+_STATUS_CONTAMINATION_RE = re.compile(r"\s*[⌛⏳]\s.*$|\s*\n+.*$", re.DOTALL)
+
+
+def _clean_history_question(raw: str) -> str:
+    """Уберает [modifier]-префикс и любые остатки status-сообщения из
+    saved-question, чтобы в /history был только реальный вопрос студента."""
+    q = _FU_PREFIX_RE.sub("", raw or "")
+    q = _STATUS_CONTAMINATION_RE.sub("", q)
+    return q.strip()
+
+
 async def _render_history(
     session: AsyncSession,
     user: User,
@@ -97,7 +113,7 @@ async def _render_history(
             f"{star}" + texts.tr(lang, texts.HISTORY_ITEM).format(
                 when=d.created_at.strftime("%d.%m %H:%M"),
                 subject=title,
-                q=shorten(d.question, 120),
+                q=shorten(_clean_history_question(d.question or ""), 120),
                 a=shorten(d.answer, 200),
             )
         )

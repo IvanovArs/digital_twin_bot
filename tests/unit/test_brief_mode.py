@@ -20,9 +20,10 @@ def _subject() -> Subject:
 # ---------- AnswerMode enum & User default ----------
 
 
-def test_user_defaults_to_verbose_mode() -> None:
+def test_user_defaults_to_brief_mode() -> None:
+    """Дефолт PM-ответа — brief: меньше визуального шума, мгновенно читается."""
     u = User(telegram_id=1, full_name="U")
-    assert u.answer_mode is AnswerMode.verbose
+    assert u.answer_mode is AnswerMode.brief
 
 
 def test_user_role_and_mode_are_independent() -> None:

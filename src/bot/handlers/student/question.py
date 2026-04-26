@@ -8,7 +8,8 @@ import html
 
 import structlog
 from aiogram import F, Router
-from aiogram.enums import ChatAction
+from aiogram.enums import ChatAction, ChatType
+from aiogram.enums.message_entity_type import MessageEntityType
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.filters import Command  # noqa: F401  (для обратной совместимости импорта)
 from aiogram.fsm.context import FSMContext
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot import texts
 from src.bot.keyboards import (
+    disambig_keyboard,
     feedback_brief,
     feedback_inline,
     feedback_short_answer,
@@ -31,6 +33,43 @@ log = structlog.get_logger(__name__)
 router = Router(name="student_question")
 
 
+_GROUP_CHAT_TYPES = {ChatType.GROUP, ChatType.SUPERGROUP}
+
+
+async def _is_addressed_to_bot(message: Message) -> bool:
+    """В группах принимаем вопрос только если бота явно позвали:
+
+    - reply на сообщение бота, либо
+    - в тексте есть @mention/text_mention бота.
+
+    Privacy mode в BotFather у Telegram уже фильтрует это на стороне
+    сервера, но строгая проверка нужна на случай выключенного privacy /
+    админ-бота — иначе бот реагировал бы на каждое сообщение в чате.
+    """
+    if message.bot is None:
+        return False
+    me = await message.bot.me()  # aiogram кеширует — без сетевого hit
+    bot_id = me.id
+    bot_username = (me.username or "").lower() or None
+
+    if (
+        message.reply_to_message
+        and message.reply_to_message.from_user
+        and message.reply_to_message.from_user.id == bot_id
+    ):
+        return True
+
+    text = message.text or ""
+    for ent in message.entities or []:
+        if ent.type == MessageEntityType.MENTION and bot_username:
+            mention = text[ent.offset : ent.offset + ent.length].lstrip("@").lower()
+            if mention == bot_username:
+                return True
+        elif ent.type == MessageEntityType.TEXT_MENTION and ent.user and ent.user.id == bot_id:
+            return True
+    return False
+
+
 @router.message(StudentFlow.awaiting_question, F.text)
 @router.message(F.text & ~F.text.startswith("/"))
 async def on_question(
@@ -41,6 +80,13 @@ async def on_question(
     lang: str,
 ) -> None:
     """Тонкий хендлер — вся RAG-логика в `qa_pipeline.run_qa_pipeline`."""
+    # В группах/супергруппах отвечаем только если бот адресован (reply или
+    # @mention). Без этого бот реагировал на любое сообщение в чате —
+    # «ты че ебанутый?» в группе становился вопросом к учебнику.
+    if message.chat and message.chat.type in _GROUP_CHAT_TYPES:
+        if not await _is_addressed_to_bot(message):
+            return
+
     question = (message.text or "").strip()
     if not question:
         await message.answer(texts.tr(lang, texts.PROMPT_QUESTION))
@@ -138,10 +184,20 @@ async def on_question(
     async def set_final(body: str, dialog_id: int, kind: str = "full") -> None:
         processing_state.clear(rid)  # снять wh-кнопку mapping
         # Клавиатура зависит от типа ответа:
-        #   "glossary"/"faq" → курированный однопараграфный + «📖 Развёрнутый ответ».
-        #   "full"/"web" в brief → только 👍/👎.
-        #   "full"/"web" в verbose → follow-ups + «задать ещё вопрос».
-        if kind in ("glossary", "faq"):
+        #   "disambig"          → одна кнопка «🔄 Да, про "Y"» (fuzzy-suggest).
+        #   "glossary"/"faq"    → курированный однопараграфный + «📖 Развёрнутый».
+        #   "full"/"web" brief  → только 👍/👎.
+        #   "full"/"web" verbose → follow-ups + «задать ещё вопрос».
+        if kind == "disambig":
+            # body уже содержит фразу с предложенным термином в формате «… <b>«Y»</b> …»;
+            # достаём его обратно для callback_data — самый дешёвый путь.
+            import re as _re
+            m = _re.search(r"<b>«([^»]+)»</b>\.\s*Возможно", body)
+            if m is None:
+                m = _re.search(r"<b>«([^»]+)»</b>\.\s*Did", body)
+            term = (m.group(1) if m else "")[:50]
+            kb = disambig_keyboard(term, lang) if term else feedback_brief(dialog_id, lang)
+        elif kind in ("glossary", "faq"):
             kb = feedback_short_answer(dialog_id, lang)
         else:
             is_brief = (

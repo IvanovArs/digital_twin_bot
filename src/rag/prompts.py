@@ -36,6 +36,12 @@ _SYSTEM_RU_TEMPLATE = """/no_think
 ГЛАВНОЕ ПРАВИЛО: если во фрагментах нет ответа — скажи одной фразой \
 «в материалах курса этого прямо не нашлось» и остановись. Не додумывай.
 
+ПОДМЕНА ТЕРМИНА ЗАПРЕЩЕНА: если точное слово или термин из вопроса студента \
+НЕ встречается во фрагментах (даже если есть похожее по смыслу или \
+звучанию — например, спросили «плейсхолдер», а во фрагменте только \
+«стейкхолдер»), — отвечай «в материалах курса этого прямо не нашлось» и \
+остановись. Не перефразируй чужое определение под спрошенное слово.
+
 Список — только если во фрагментах действительно перечислены вещи \
 (тогда оформи буллетами «• »); иначе обычным текстом.
 
@@ -60,6 +66,12 @@ briefly and directly, USING ONLY the fragments below.
 
 KEY RULE: if the fragments don't contain the answer — say in one sentence \
 "the course materials don't cover this directly" and stop. Don't fill gaps.
+
+NO TERM SUBSTITUTION: if the exact word or term from the student's question \
+is NOT present in the fragments (even when something similar in meaning or \
+sound is — e.g. asked "placeholder" but the fragment only has "stakeholder"), \
+respond "the course materials don't cover this directly" and stop. Do NOT \
+re-phrase a different concept under the asked word.
 
 Use bullets only if the fragments actually enumerate things ("• " per line); \
 otherwise plain prose.
@@ -148,17 +160,22 @@ _FOLLOWUP_MODIFIERS: dict[str, dict[str, str]] = {
             "Сохрани конкретику из фрагмента."
         ),
         "example": (
-            "\n\nДополнительная инструкция: дай развёрнутый конкретный пример "
-            "применения, ТОЛЬКО ЕСЛИ он есть во фрагментах. Если во "
-            "фрагментах примера нет — так и скажи: «во фрагментах прямого "
-            "примера нет», и предложи разумную бытовую иллюстрацию, пометив "
-            "её как «пример от ассистента». Не выдумывай авторов и цифры."
+            "\n\nДополнительная инструкция: дай 2–3 РАЗНЫХ конкретных примера "
+            "применения. Каждый — отдельным буллетом, 1–3 предложения, с "
+            "указанием контекста. Сначала бери примеры из фрагментов; если "
+            "там их меньше двух — дополни разумными бытовыми иллюстрациями, "
+            "пометив каждую как «пример от ассистента». Не выдумывай "
+            "авторов, цифры и ссылки. НЕ повторяй определение из прошлого "
+            "ответа — сразу к примерам."
         ),
         "deepen": (
-            "\n\nДополнительная инструкция: ответь подробнее — покажи нюансы, "
-            "связи с другими понятиями из тех же фрагментов, разные "
-            "трактовки, типичные ошибки. Только из фрагментов, без новых "
-            "атрибуций."
+            "\n\nДополнительная инструкция: ответь РАЗВЁРНУТО — 3–5 абзацев. "
+            "Раскрой по слоям: (1) уточнённое определение и почему оно "
+            "именно такое, (2) связи с другими понятиями из тех же "
+            "фрагментов, (3) разные трактовки/подходы если они есть в "
+            "фрагментах, (4) типичные ошибки и подводные камни. Только из "
+            "фрагментов, без новых атрибуций. Объём — длиннее предыдущего "
+            "ответа в 2–3 раза, иначе модификатор бесполезен."
         ),
     },
     "en": {
@@ -169,15 +186,21 @@ _FOLLOWUP_MODIFIERS: dict[str, dict[str, str]] = {
             "fragments."
         ),
         "example": (
-            "\n\nExtra: give one concrete, extended example of use ONLY if "
-            "the fragments contain one. If not — say so, and offer a "
-            "plausible everyday illustration labelled «assistant's example»."
-            " Don't invent authors or figures."
+            "\n\nExtra: give 2–3 DIFFERENT concrete examples of use. Each "
+            "as its own bullet, 1–3 sentences, with context. Pull from the "
+            "fragments first; if they hold fewer than two, top up with "
+            "plausible everyday illustrations labelled «assistant's "
+            "example». Don't invent authors, numbers or citations. Don't "
+            "repeat the previous definition — go straight to examples."
         ),
         "deepen": (
-            "\n\nExtra: go deeper — nuances, links to other concepts in the "
-            "same fragments, alternative readings, common pitfalls. Only "
-            "from the fragments, no new attributions."
+            "\n\nExtra: answer IN DEPTH — 3–5 paragraphs. Cover, in layers: "
+            "(1) a sharper definition and why exactly that, (2) links to "
+            "other concepts from the same fragments, (3) alternative "
+            "readings/approaches if the fragments mention any, (4) common "
+            "mistakes and pitfalls. Only from the fragments, no new "
+            "attributions. Length: 2–3× the previous answer, otherwise the "
+            "modifier is pointless."
         ),
     },
 }

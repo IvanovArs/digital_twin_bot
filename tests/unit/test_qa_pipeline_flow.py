@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.bot.services import answer_cache
 from src.bot.services import qa_pipeline as qa
 from src.bot.services.warmup import MODELS_READY
-from src.db.models import Base, User, UserRole
+from src.db.models import AnswerMode, Base, User, UserRole
 from src.rag.retriever import Hit
 from src.subjects.schema import Subject as SubjectCfg
 
@@ -31,6 +31,10 @@ async def session() -> AsyncSession:
 async def _user(session: AsyncSession, tg: int = 1) -> User:
     u = User(telegram_id=tg, full_name="Stud Ent")
     u.role = UserRole.student
+    # Тесты построены под verbose-flow (cache key brief=False, follow-up-кнопки и т.п.).
+    # Дефолт пользователя сейчас brief — переопределяем явно, чтобы фикстура
+    # не зависела от смены дефолта в моделях.
+    u.answer_mode = AnswerMode.verbose
     session.add(u)
     await session.flush()
     return u

@@ -65,3 +65,9 @@ def configure_logging() -> None:
     )
     for noisy in ("httpx", "httpcore", "sqlalchemy.engine", "asyncio"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    # primp (HTTP-клиент внутри duckduckgo_search) каждый запуск пишет
+    # «Impersonate 'safari_16.5' does not exist, using 'random'» — это
+    # хардкод устаревшего профиля в нашей версии duckduckgo_search; primp
+    # сам корректно фолбэчится на random. Шум, не баг → ERROR-уровень.
+    logging.getLogger("primp").setLevel(logging.ERROR)
+    logging.getLogger("primp.impersonate").setLevel(logging.ERROR)

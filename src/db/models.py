@@ -39,10 +39,10 @@ class UserRole(str, enum.Enum):
 class AnswerMode(str, enum.Enum):
     """Пользовательская настройка — сколько обвязки бот пишет вокруг ответа.
 
-    ``verbose`` — дефолт; follow-up кнопки, header с вопросом,
-    «Источники»-блок, развёрнутая структура.
-    ``brief`` — только тело ответа + источники одной строкой, без follow-up
-    и feedback-обвески. Для тех, кому нужен lookup, а не чат.
+    ``brief`` — дефолт в PM: только тело ответа + источники одной строкой.
+    Минимум визуального шума, мгновенно читается.
+    ``verbose`` — развёрнутая структура: header с вопросом, «Источники»-блок,
+    follow-up кнопки. Включается через /mode verbose.
     """
 
     verbose = "verbose"
@@ -65,7 +65,7 @@ class User(Base):
     )
     answer_mode: Mapped[AnswerMode] = mapped_column(
         Enum(AnswerMode, name="answer_mode", native_enum=False, length=16),
-        default=AnswerMode.verbose,
+        default=AnswerMode.brief,
     )
     group_name: Mapped[str | None] = mapped_column(String(50), default=None)
     current_subject_slug: Mapped[str | None] = mapped_column(String(64), default=None)

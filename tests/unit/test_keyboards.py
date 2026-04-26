@@ -61,12 +61,14 @@ def test_feedback_brief_is_just_thumbs() -> None:
     assert cbs == {"fb:99:5", "fb:99:1"}
 
 
-def test_feedback_bare_no_followup() -> None:
+def test_feedback_bare_has_followup_row() -> None:
+    """Inline-ответы теперь умеют редактироваться по `inline_message_id`,
+    так что в bare-клавиатуру вернули ряд follow-up'ов — студент в группе
+    получает то же поведение «Проще / Пример / Подробнее» что и в личке."""
     kb = feedback_bare(dialog_id=7, lang="ru")
     cbs = _all_callbacks(kb)
-    # Feedback должен быть, follow-up'ов не должно.
     assert "fb:7:5" in cbs and "fb:7:1" in cbs
-    assert not any(c.startswith("fu:") for c in cbs)
+    assert {"fu:7:simplify", "fu:7:example", "fu:7:deepen"}.issubset(cbs)
 
 
 def test_feedback_short_answer_has_expand_button() -> None:

@@ -77,10 +77,56 @@ def _is_heavy_update(update: Update) -> bool:
     msg = update.message
     if msg is None or not isinstance(msg, Message):
         return False
+    # Сообщение, отправленное через inline-режим самого бота (`via_bot`),
+    # Telegram доставляет обратно в чат как Message — это НЕ свежий запрос
+    # юзера, а наш собственный inline-плейсхолдер. Если считать heavy,
+    # оно съедает throttle-слот, и следующий ``chosen_inline_result``
+    # того же юзера дропается как burst (gap_ms=0). Auto-fire ломается.
+    if getattr(msg, "via_bot", None) is not None:
+        return False
+    # В группах/супергруппах не считаем heavy любой текст без `/` —
+    # хендлер `on_question` всё равно отбросит сообщения, не адресованные
+    # боту (без reply / @mention). Если оставить heavy, мы зря заберём
+    # throttle-слот у того же юзера и дропнем его следующий настоящий
+    # запрос как burst.
+    chat = getattr(msg, "chat", None)
+    if chat is not None and getattr(chat, "type", None) in ("group", "supergroup"):
+        if not _is_message_addressed_to_bot(msg):
+            return False
     text = (msg.text or msg.caption or "").lstrip()
     if text.startswith("/"):
         return False  # /ask, /help, /admin_* — не heavy
     return bool(text)
+
+
+def _is_message_addressed_to_bot(msg: Message) -> bool:
+    """Лёгкая sync-проверка @mention / reply на бота. Username/ID берём из
+    кеша aiogram (`bot._me`); если ещё не прогрет — возвращаем True, чтобы
+    не молча дропать настоящие вопросы при первом hit'е после рестарта."""
+    bot = msg.bot
+    if bot is None:
+        return True
+    me = getattr(bot, "_me", None)
+    if me is None:
+        return True
+    bot_id = me.id
+    bot_username = (me.username or "").lower() or None
+    if (
+        msg.reply_to_message
+        and msg.reply_to_message.from_user
+        and msg.reply_to_message.from_user.id == bot_id
+    ):
+        return True
+    text = msg.text or msg.caption or ""
+    for ent in msg.entities or msg.caption_entities or []:
+        et = getattr(ent, "type", "")
+        if et == "mention" and bot_username:
+            mention = text[ent.offset : ent.offset + ent.length].lstrip("@").lower()
+            if mention == bot_username:
+                return True
+        elif et == "text_mention" and ent.user and ent.user.id == bot_id:
+            return True
+    return False
 
 
 class ThrottleMiddleware(BaseMiddleware):
