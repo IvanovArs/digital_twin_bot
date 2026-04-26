@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # support yet — this is purely the health endpoint.
     # Default 0.0.0.0 so the container's own port-mapping works; bind to
     # 127.0.0.1 if you want host-only.
-    HEALTH_LISTEN: str = "0.0.0.0"  # noqa: S104
+    HEALTH_LISTEN: str = "0.0.0.0"  # noqa: S104  # nosec B104  # bind-all нужен для docker-compose / k8s probe-маршрутов
     HEALTH_PORT: int = 8081
 
     # --- Database ---
