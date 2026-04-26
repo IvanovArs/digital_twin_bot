@@ -28,7 +28,7 @@ data/dev.db
 logs/
 *.pid
 data/*.log
-
+data/
 # --- IDE / OS ---
 .vscode/
 .idea/
