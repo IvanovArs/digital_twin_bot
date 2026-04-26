@@ -272,7 +272,7 @@ async def _run_qa_pipeline_inner(
             session,
             user=user,
             question=question,
-            result=AskResult(answer=faq.answer, subject=None, hits=[], route=None),  # type: ignore[arg-type]
+            result=AskResult(answer=faq.answer, subject=None, hits=[]),
             latency_ms=int((time.monotonic() - t0) * 1000),
         )
         body = format_faq_body(faq, lang, question=question)
@@ -299,7 +299,7 @@ async def _run_qa_pipeline_inner(
             session,
             user=user,
             question=question,
-            result=AskResult(answer=gloss.definition, subject=None, hits=[], route=None),  # type: ignore[arg-type]
+            result=AskResult(answer=gloss.definition, subject=None, hits=[]),
             latency_ms=int((time.monotonic() - t0) * 1000),
         )
         body = format_glossary_body(gloss, lang, question=question)
@@ -330,10 +330,14 @@ async def _run_qa_pipeline_inner(
     # только на этот предмет. Если был comparison-запрос («сравни X и Y»),
     # делаем два независимых retrieval — по одному на термин — и мержим,
     # чтобы LLM увидела сбалансированный контекст.
+    from src.subjects import Subject as _Subject
+
     pinned_slug = getattr(user, "current_subject_slug", None) or None
     cmp = detect_comparison(question)
     t_stage = time.monotonic()
     comparison_terms: tuple[str, str] | None = None
+    subject: _Subject | None = None
+    hits: list = []  # type: ignore[type-arg]
     try:
         if cmp is not None:
             term_a, term_b = cmp
@@ -416,8 +420,7 @@ async def _run_qa_pipeline_inner(
                         answer=f"[no-match: suggested «{fuzzy}»]",
                         subject=subject,
                         hits=[],
-                        route=None,
-                    ),  # type: ignore[arg-type]
+                    ),
                     latency_ms=int((time.monotonic() - t0) * 1000),
                 )
                 await set_final(disambig_body, refused_dialog.id, "disambig")
@@ -463,7 +466,7 @@ async def _run_qa_pipeline_inner(
         )
     )
 
-    brief = getattr(user, "answer_mode", None) and user.answer_mode.value == "brief"
+    brief = bool(getattr(user, "answer_mode", None) and user.answer_mode.value == "brief")
     try:
         if comparison_terms is not None:
             messages = build_comparison_messages(
@@ -523,7 +526,7 @@ async def _run_qa_pipeline_inner(
 
     latency_ms = int((time.monotonic() - t0) * 1000)
 
-    result = AskResult(answer=answer, subject=subject, hits=hits, route=None)  # type: ignore[arg-type]
+    result = AskResult(answer=answer, subject=subject, hits=hits)
     dialog = await save_dialog(
         session, user=user, question=question, result=result, latency_ms=latency_ms
     )
@@ -980,7 +983,7 @@ async def run_followup_pipeline(
             brief=False,
         )
     else:
-        result = AskResult(answer=answer, subject=ctx.subject, hits=ctx.hits, route=None)  # type: ignore[arg-type]
+        result = AskResult(answer=answer, subject=ctx.subject, hits=ctx.hits)
         new_dialog = await save_dialog(
             session,
             user=user,

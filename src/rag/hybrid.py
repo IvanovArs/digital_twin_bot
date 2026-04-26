@@ -110,7 +110,7 @@ def search_bm25(
                 text=str(c["text"]),
                 subject_slug=str(c["subject_slug"]),
                 book=str(c["book"]),
-                page=int(c["page"]),
+                page=int(c["page"]),  # type: ignore[call-overload]
                 score=float(scores[i]),
             )
         )

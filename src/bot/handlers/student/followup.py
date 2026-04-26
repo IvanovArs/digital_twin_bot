@@ -90,18 +90,18 @@ async def on_expand_answer(
 
     q_html = html.escape(question)
     q_with_status = texts.tr(lang, texts.Q_WITH_STATUS)
-    last_sent: dict[str, str] = {"text": msg.text or ""}
+    last_sent: dict[str, str] = {"text": msg.text or ""}  # type: ignore[union-attr]
 
     async def _edit(text: str, reply_markup=None) -> None:  # type: ignore[no-untyped-def]
         if text == last_sent["text"]:
             return
         try:
-            await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+            await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)  # type: ignore[union-attr]
             last_sent["text"] = text
         except TelegramRetryAfter as exc:
             await asyncio.sleep(exc.retry_after + 0.1)
             with contextlib.suppress(Exception):
-                await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+                await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)  # type: ignore[union-attr]
                 last_sent["text"] = text
         except TelegramBadRequest as exc:
             if "not modified" not in str(exc).lower():
@@ -190,7 +190,7 @@ async def on_followup(
     q_html = html.escape(raw_q) if raw_q else ""
     q_with_status = texts.tr(lang, texts.Q_WITH_STATUS)
 
-    last_sent: dict[str, str] = {"text": (msg.text if msg is not None else "") or ""}
+    last_sent: dict[str, str] = {"text": (msg.text if msg is not None else "") or ""}  # type: ignore[union-attr]
 
     async def _edit(text: str, reply_markup=None) -> None:  # type: ignore[no-untyped-def]
         if text == last_sent["text"]:
@@ -203,7 +203,7 @@ async def on_followup(
                     parse_mode="HTML",
                     reply_markup=reply_markup,
                 )
-            else:
+            elif msg is not None:
                 await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)  # type: ignore[union-attr]
             last_sent["text"] = text
         except TelegramRetryAfter as exc:
@@ -216,7 +216,7 @@ async def on_followup(
                         parse_mode="HTML",
                         reply_markup=reply_markup,
                     )
-                else:
+                elif msg is not None:
                     await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)  # type: ignore[union-attr]
                 last_sent["text"] = text
         except TelegramBadRequest as exc:
@@ -254,9 +254,9 @@ async def on_followup(
         set_status=set_status,
         set_final=set_final,
     )
-    if not ok:
+    if not ok and msg is not None:
         with contextlib.suppress(Exception):
-            await msg.edit_text(texts.tr(lang, texts.FU_EXPIRED))
+            await msg.edit_text(texts.tr(lang, texts.FU_EXPIRED))  # type: ignore[union-attr]
 
 
 @router.callback_query(F.data.startswith("at:"))
@@ -286,18 +286,18 @@ async def on_ask_term(
     rephrased = f"что такое {term}"
     q_html = html.escape(rephrased)
     q_with_status = texts.tr(lang, texts.Q_WITH_STATUS)
-    last_sent: dict[str, str] = {"text": msg.text or ""}
+    last_sent: dict[str, str] = {"text": msg.text or ""}  # type: ignore[union-attr]
 
     async def _edit(text: str, reply_markup=None) -> None:  # type: ignore[no-untyped-def]
         if text == last_sent["text"]:
             return
         try:
-            await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+            await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)  # type: ignore[union-attr]
             last_sent["text"] = text
         except TelegramRetryAfter as exc:
             await asyncio.sleep(exc.retry_after + 0.1)
             with contextlib.suppress(Exception):
-                await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+                await msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)  # type: ignore[union-attr]
                 last_sent["text"] = text
         except TelegramBadRequest as exc:
             if "not modified" not in str(exc).lower():

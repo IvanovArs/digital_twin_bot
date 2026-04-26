@@ -22,7 +22,7 @@ from src.bot import texts
 from src.bot.handlers.student._common import shorten
 from src.bot.keyboards import main_inline
 from src.bot.services.dialog_service import set_favourite, user_dialogs_page
-from src.db.models import User
+from src.db.models import Dialog, User
 
 router = Router(name="student_history")
 
@@ -30,7 +30,12 @@ _HIST_PAGE_SIZE = 5
 
 
 def _history_keyboard(
-    dialogs, page: int, total: int, *, favourites_only: bool, search: str | None
+    dialogs: list[Dialog],
+    page: int,
+    total: int,
+    *,
+    favourites_only: bool,
+    search: str | None,
 ) -> InlineKeyboardMarkup:
     """Кнопки ⭐-toggle на каждой строке + пагинация prev/next.
 
@@ -236,7 +241,7 @@ async def on_history_page(
     if msg is None:
         return
     with contextlib.suppress(TelegramBadRequest):
-        await msg.edit_text(body, parse_mode="HTML", reply_markup=kb)
+        await msg.edit_text(body, parse_mode="HTML", reply_markup=kb)  # type: ignore[union-attr]
 
 
 @router.callback_query(F.data.startswith("star:"))
@@ -266,4 +271,4 @@ async def on_star_toggle(
     if msg is None:
         return
     with contextlib.suppress(TelegramBadRequest):
-        await msg.edit_text(body, parse_mode="HTML", reply_markup=kb)
+        await msg.edit_text(body, parse_mode="HTML", reply_markup=kb)  # type: ignore[union-attr]

@@ -13,7 +13,7 @@ from aiogram.enums.message_entity_type import MessageEntityType
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.filters import Command  # noqa: F401  (для обратной совместимости импорта)
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReactionTypeEmoji
+from aiogram.types import InlineKeyboardMarkup, Message, ReactionTypeEmoji
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot import texts
@@ -116,7 +116,7 @@ async def on_question(
     # наши edits незаметно ломаются — это раньше выглядело как «статус не меняется».
     last_sent = {"text": initial_status_text}
 
-    async def _edit(new_text: str, reply_markup: object = None) -> None:
+    async def _edit(new_text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
         # Дедупликация только по тексту — set_status каждый раз цепляет ту же
         # processing_keyboard, set_final меняет и текст и markup сразу.
         if new_text == last_sent["text"]:

@@ -25,7 +25,7 @@ def _force_utf8_stdio() -> None:
         return
     for stream in (sys.stdout, sys.stderr):
         with contextlib.suppress(AttributeError, OSError):
-            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr,unused-ignore]
 
 
 def configure_logging() -> None:

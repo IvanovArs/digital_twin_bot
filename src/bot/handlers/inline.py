@@ -8,6 +8,7 @@ import html
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
 from aiogram import Bot, F, Router
@@ -147,7 +148,10 @@ async def on_inline_query(query: InlineQuery, lang: str) -> None:
         # Пустой запрос → 4 сэмпл-вопроса, которые студент может ткнуть и
         # отправить. Каждый — настоящий плейсхолдер с iq:{qid}-кнопкой, тап
         # запускает тот же пайплайн, что и набранный inline-запрос.
-        results: list[InlineQueryResultArticle] = []
+        # InlineQueryResult union — list инвариантен; конкретный Article-тип
+        # ломает arg-type под `query.answer(results=...)`. Any в типе списка
+        # снимает ложное несоответствие.
+        results: list[Any] = []
         idx = 0 if lang == "ru" else 1
         for ru_q, en_q in texts.ASK_SAMPLES:
             sample = (ru_q, en_q)[idx]

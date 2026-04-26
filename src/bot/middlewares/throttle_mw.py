@@ -37,7 +37,7 @@ from typing import Any
 
 import structlog
 from aiogram import BaseMiddleware
-from aiogram.types import Message, Update
+from aiogram.types import Message, TelegramObject, Update
 
 log = structlog.get_logger(__name__)
 
@@ -137,8 +137,8 @@ class ThrottleMiddleware(BaseMiddleware):
 
     async def __call__(
         self,
-        handler: Callable[[Update, dict[str, Any]], Awaitable[Any]],
-        event: Update,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
         if not isinstance(event, Update) or not _is_heavy_update(event):

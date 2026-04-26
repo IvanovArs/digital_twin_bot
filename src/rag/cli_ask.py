@@ -37,7 +37,7 @@ def main() -> None:
 
     if result.subject is not None:
         print(f"📚 Курс: {result.subject.title_ru}")
-    if result.route.ambiguous:
+    if result.route is not None and result.route.ambiguous:
         print(
             "⚠️  Не уверен в курсе. Варианты: "
             + ", ".join(f"{s} ({v:.2f})" for s, v in result.route.ranked[:3])

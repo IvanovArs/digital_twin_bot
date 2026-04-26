@@ -32,7 +32,9 @@ class AskResult:
     answer: str
     subject: Subject | None
     hits: list[Hit]
-    route: RouteResult
+    # Может быть None для коротких путей (FAQ/glossary/disambig/web), где
+    # роутер вообще не задействован. Полный RAG-поток всегда заполняет.
+    route: RouteResult | None = None
 
 
 @lru_cache(maxsize=1)

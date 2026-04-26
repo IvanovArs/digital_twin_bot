@@ -89,7 +89,7 @@ async def on_ref(
     lines = [f"<b>Источники для #{dialog_id}</b>:"]
     for row in src_rows:
         if not isinstance(row, dict):
-            continue
+            continue  # type: ignore[unreachable]
         if row.get("type") == "web":
             title = html.escape(str(row.get("title") or "web"))
             url = html.escape(str(row.get("url") or ""), quote=True)
@@ -102,6 +102,6 @@ async def on_ref(
             if page is not None:
                 bits.append(f"стр. {page}")
             if score is not None:
-                bits.append(f"совпадение {float(score):.2f}")
+                bits.append(f"совпадение {float(score):.2f}")  # type: ignore[arg-type]
             lines.append("• " + " · ".join(bits))
     await message.answer("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
