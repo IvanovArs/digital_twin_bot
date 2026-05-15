@@ -7,10 +7,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup,
+    InlineQueryResultArticle, InputTextMessageContent
+)
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, 
-    CallbackQueryHandler, filters, ContextTypes
+    CallbackQueryHandler, filters, ContextTypes,
+    InlineQueryHandler
 )
 import sys
 import io
@@ -310,8 +314,66 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Бот помогает вам учиться? Оставьте отзыв командой /feedback
 """
     await update.message.reply_text(text, parse_mode='Markdown')
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "📚 *Как искать по учебникам:*\n\n"
+            "`/search системный анализ`\n"
+            "`/search иерархическая структура`\n"
+            "`/search цель и средства`\n\n"
+            "Бот найдёт информацию в учебниках Волковой и Денисова.",
+            parse_mode='Markdown'
+        )
+        return
+    query = ' '.join(context.args)
+    words = query.split()
+    ts_query = ' & '.join(words)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT 
+                t.title as textbook_title,
+                kb.chapter_title,
+                kb.page_number,
+                kb.text_content,
+                ts_rank(kb.search_vector, to_tsquery('russian', %s)) as relevance
+            FROM knowledge_base kb
+            JOIN textbooks t ON kb.textbook_id = t.textbook_id
+            WHERE kb.search_vector @@ to_tsquery('russian', %s)
+            ORDER BY relevance DESC
+            LIMIT 5
+        """, (ts_query, ts_query))
+        results = cur.fetchall()
+        if not results:
+            await update.message.reply_text(
+                f"❌ *Ничего не найдено* по запросу: \"{query}\"\n\n"
+                f"💡 Попробуйте:\n"
+                f"• Использовать другие ключевые слова\n"
+                f"• Упростить запрос (например, «система» вместо «системный анализ»)\n"
+                f"• Посмотреть /glossary для терминов",
+                parse_mode='Markdown'
+            )
+            return
+        text = f"🔍 *Результаты поиска:* \"{query}\"\n\n"
+        for i, row in enumerate(results, 1):
+            textbook_title = row[0]
+            chapter_title = row[1]
+            page = row[2] if row[2] else "?"
+            content = row[3]
+            snippet = content[:400] + '...' if len(content) > 400 else content
+            text += f"*{i}. {textbook_title}* — *{chapter_title}* (стр. {page})\n"
+            text += f"{snippet}\n\n"
+        if len(text) > 4000:
+            text = text[:3900] + "\n\n... (результат обрезан, уточните запрос)"
+        await update.message.reply_text(text, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        await update.message.reply_text("❌ Ошибка при поиске. Попробуйте более простой запрос.")
+    finally:
+        cur.close()
+        conn.close()
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка текстовых сообщений"""
     user = update.effective_user
     message_text = update.message.text
     if context.user_data.get('awaiting_feedback'):
@@ -367,6 +429,97 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_chat_history(user.id, message_text, "No results found")
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
+async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.inline_query.query.strip().lower()
+    if not query:
+        results = [
+            InlineQueryResultArticle(
+                id='0',
+                title='💡 Введите поисковый запрос',
+                description='Например: "системный анализ" или "дедлайн"',
+                input_message_content=InputTextMessageContent(
+                    "Введите термин для поиска в глоссарии.\n"
+                    "Например: \"система\", \"цель\", \"SWOT\""
+                )
+            )
+        ]
+        await update.inline_query.answer(results, cache_time=1)
+        return
+    conn = get_db_connection()
+    cur = conn.cursor() 
+    try:
+        cur.execute("""
+            SELECT term, definition FROM glossary 
+            WHERE LOWER(term) LIKE %s OR LOWER(definition) LIKE %s
+            LIMIT 10
+        """, (f'%{query}%', f'%{query}%'))
+        glossary_results = cur.fetchall()
+        results = []
+        for i, (term, definition) in enumerate(glossary_results):
+            short_def = (definition[:100] + '...') if len(definition) > 100 else definition
+            results.append(
+                InlineQueryResultArticle(
+                    id=f'glossary_{i}',
+                    title=f'📖 {term}',
+                    description=short_def,
+                    input_message_content=InputTextMessageContent(
+                        f"📖 *{term}*\n\n{definition}",
+                        parse_mode='Markdown'
+                    )
+                )
+            )
+            if len(results) >= 10:
+                break
+        if not results:
+            cur.execute("""
+                SELECT question, answer FROM faq 
+                WHERE LOWER(question) LIKE %s OR LOWER(answer) LIKE %s
+                LIMIT 5
+            """, (f'%{query}%', f'%{query}%'))
+            faq_results = cur.fetchall()
+            for i, (question, answer) in enumerate(faq_results):
+                short_answer = (answer[:100] + '...') if len(answer) > 100 else answer
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f'faq_{i}',
+                        title=f'❓ {question[:50]}',
+                        description=short_answer,
+                        input_message_content=InputTextMessageContent(
+                            f"❓ *Вопрос:* {question}\n\n*Ответ:* {answer}",
+                            parse_mode='Markdown'
+                        )
+                    )
+                )
+    except Exception as e:
+        logger.error(f"Inline query error: {e}")
+        results = [
+            InlineQueryResultArticle(
+                id='error',
+                title='⚠️ Ошибка поиска',
+                description='Попробуйте позже',
+                input_message_content=InputTextMessageContent("❌ Не удалось выполнить поиск. Попробуйте позже или обратитесь к преподавателю.")
+            )
+        ]
+    finally:
+        cur.close()
+        conn.close()
+    if not results:
+        results = [
+            InlineQueryResultArticle(
+                id='0',
+                title=f'❌ Ничего не найдено: "{query}"',
+                description='Попробуйте другие ключевые слова',
+                input_message_content=InputTextMessageContent(
+                    f"❌ По запросу *{query}* ничего не найдено.\n\n"
+                    f"📌 Возможности бота:\n"
+                    f"• /glossary — посмотреть все термины\n"
+                    f"• /faq — частые вопросы\n"
+                    f"• /help — все команды",
+                    parse_mode='Markdown'
+                )
+            )
+        ]
+    await update.inline_query.answer(results, cache_time=60)
 def main():
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not found in .env file")
@@ -382,8 +535,10 @@ def main():
     app.add_handler(CommandHandler("my_consults", my_consults_command))
     app.add_handler(CommandHandler("feedback", feedback_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CallbackQueryHandler(consult_callback, pattern="consult_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(InlineQueryHandler(inline_query_handler))
     app.add_error_handler(error_handler)
     logger.info("Бот запущен...")
     print("[INFO] Bot 'Digital Twin of the Teacher' started!")
